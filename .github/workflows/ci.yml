@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONTAINER_RUNTIME: docker
+  RC_REF_IMAGE: ghcr.io/enzv/plan9port:latest
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Lint, Test & Build
+        run: |
+          go run . make.rc lint
+          git diff --exit-code
+          go run . make.rc test
+          go run . make.rc build
