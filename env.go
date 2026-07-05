@@ -26,7 +26,7 @@ type shellEnv struct {
 	vars  map[string][]string
 	fns   map[string]*Tree
 	cwd   string
-	ifnot bool // true when previous if-condition was false
+	ifstate int // 0: none, 1: false, 2: true
 	jobs  *jobState
 	flags map[string]bool
 }
@@ -175,7 +175,7 @@ func (e *shellEnv) clone() *shellEnv {
 		vars:  make(map[string][]string, len(e.vars)),
 		fns:   make(map[string]*Tree, len(e.fns)),
 		cwd:   e.cwd,
-		ifnot: e.ifnot,
+		ifstate: e.ifstate,
 		jobs:  e.jobs,
 		flags: make(map[string]bool, len(e.flags)),
 	}

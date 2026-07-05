@@ -264,6 +264,7 @@ func (r *runner) execTwiddle(node *Tree) error {
 }
 
 func (r *runner) execAssignment(node *Tree) error {
+	r.env.ifstate = 0
 	name, err := r.expandName(node.Child[0])
 	if err != nil {
 		return err
@@ -289,6 +290,7 @@ func (r *runner) execAssignment(node *Tree) error {
 }
 
 func (r *runner) execSimple(node *Tree) error {
+	r.env.ifstate = 0
 	parts := flattenArgList(node.Child[0])
 	var args []string
 	for _, part := range parts {
@@ -449,31 +451,35 @@ func (r *runner) execAsync(node *Tree) error {
 }
 
 // execIf implements: if (list) command
-// Sets env.ifnot to track whether the condition was false.
+// Sets env.ifstate to track whether the condition was false.
 func (r *runner) execIf(node *Tree) error {
 	// Execute condition (Child[0] is a tokenPCmd wrapping the condition list).
 	if err := r.exec(node.Child[0]); err != nil {
 		return err
 	}
 	if isTrueStatus(r.env.status()) {
-		r.env.ifnot = false
+		r.env.ifstate = 0
 		err := r.exec(node.Child[1])
 		// After the if-body runs, mark that the condition was true.
 		// This makes subsequent 'if not' skip.
-		r.env.ifnot = false
+		r.env.ifstate = 2
 		return err
 	}
 	// Mark for 'if not' because the condition was false.
-	r.env.ifnot = true
+	r.env.ifstate = 1
 	return nil
 }
 
 // execIfNot implements: if not command
-// Only executes body if the preceding if-condition was false (env.ifnot == true).
+// Only executes body if the preceding if-condition was false (env.ifstate == 1).
 func (r *runner) execIfNot(node *Tree) error {
-	if r.env.ifnot {
-		r.env.ifnot = false
+	state := r.env.ifstate
+	r.env.ifstate = 0
+	if state == 1 {
 		return r.exec(node.Child[0])
+	}
+	if state == 2 {
+		return nil
 	}
 	r.shellErrorf("if not without matching if\n")
 	r.env.setStatus("1")
