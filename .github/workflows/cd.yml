@@ -25,11 +25,12 @@ jobs:
         with:
           go-version: '1.26'
 
-      - name: Verify
-        run: |
-          go run . make.rc lint
-          git diff --exit-code
-          go run . make.rc test
+      - name: Lint
+        run: go run . make.rc lint
+      - name: Check clean tree
+        run: git diff --exit-code
+      - name: Test
+        run: go run . make.rc test
 
       - name: Build Release
         run: go run . make.rc release

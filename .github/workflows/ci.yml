@@ -4,7 +4,19 @@ on:
   push:
     branches:
       - master
+    paths:
+      - '**/*.go'
+      - '**/*.rc'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/**'
   pull_request:
+    paths:
+      - '**/*.go'
+      - '**/*.rc'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -28,9 +40,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - name: Lint, Test & Build
-        run: |
-          go run . make.rc lint
-          git diff --exit-code
-          go run . make.rc test
-          go run . make.rc build
+      - name: Lint
+        run: go run . make.rc lint
+      - name: Check clean tree
+        run: git diff --exit-code
+      - name: Test
+        run: go run . make.rc test
+      - name: Build
+        run: go run . make.rc build
