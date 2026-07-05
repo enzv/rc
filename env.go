@@ -23,12 +23,12 @@ func newJobState() *jobState {
 }
 
 type shellEnv struct {
-	vars  map[string][]string
-	fns   map[string]*Tree
-	cwd   string
+	vars    map[string][]string
+	fns     map[string]*Tree
+	cwd     string
 	ifstate int // 0: none, 1: false, 2: true
-	jobs  *jobState
-	flags map[string]bool
+	jobs    *jobState
+	flags   map[string]bool
 }
 
 func newShellEnv(args []string, cwd string) (*shellEnv, error) {
@@ -172,12 +172,12 @@ func (e *shellEnv) setStatus(status string) {
 
 func (e *shellEnv) clone() *shellEnv {
 	cp := &shellEnv{
-		vars:  make(map[string][]string, len(e.vars)),
-		fns:   make(map[string]*Tree, len(e.fns)),
-		cwd:   e.cwd,
+		vars:    make(map[string][]string, len(e.vars)),
+		fns:     make(map[string]*Tree, len(e.fns)),
+		cwd:     e.cwd,
 		ifstate: e.ifstate,
-		jobs:  e.jobs,
-		flags: make(map[string]bool, len(e.flags)),
+		jobs:    e.jobs,
+		flags:   make(map[string]bool, len(e.flags)),
 	}
 	for name, values := range e.vars {
 		cp.vars[name] = append([]string(nil), values...)
