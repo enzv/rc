@@ -1,7 +1,5 @@
 ![Logo](./logo.svg)
 
-<br>
-
 `rc` is a ~99% identical port of the Plan 9 `rc(1)` shell. Reverse-engineered directly from the [original C source](https://github.com/plan9foundation/plan9/tree/main/sys/src/cmd/rc) and [man page](https://github.com/plan9foundation/plan9/blob/main/sys/man/1/rc), it reconstructs the exact AST semantics. We even resurrected undocumented quirks like `-V` and obscure list-flattening.
 
 A memory-safe, cross-platform 2MB static binary.
