@@ -25,24 +25,39 @@ if(! ~ $#* 1)
 if(! test -f go.mod)
 	die 'must be run from the repository root'
 
-container_runtime=podman
+container_runtime=docker
 if(! ~ $#CONTAINER_RUNTIME 0)
 	container_runtime=$CONTAINER_RUNTIME
 
 ref_image=localhost/rc-plan9port-ref:latest
-if(! ~ $#RC_REF_IMAGE 0)
+is_external_image=false
+if(! ~ $#RC_REF_IMAGE 0) {
 	ref_image=$RC_REF_IMAGE
+	is_external_image=true
+}
+
+version = $VERSION
+if(~ $#version 0) {
+	version = `{git describe --tags '--abbrev=0' >[2]/dev/null}
+	if(~ $#version 0)
+		version = 'devel'
+}
 
 fn ensure_image {
-	if(! test -f Containerfile.plan9port)
-		die 'missing Containerfile.plan9port'
-
 	need $container_runtime
 
-	$container_runtime build \
-		-t $1 \
-		-f Containerfile.plan9port \
-		.
+	if(~ $is_external_image true) {
+		echo 'Pulling reference image:' $1
+		if(! $container_runtime pull $1)
+			die 'failed to pull image:' $1
+	}
+	if not {
+		if(! test -f Containerfile.plan9port)
+			die 'missing Containerfile.plan9port'
+		echo 'Building reference image:' $1
+		if(! $container_runtime build -t $1 -f Containerfile.plan9port .)
+			die 'failed to build local image:' $1
+	}
 }
 
 fn run_go_test {
@@ -66,7 +81,7 @@ fn cmd_bench {
 }
 
 fn cmd_build {
-	go build '-buildvcs=false' -o rc .
+	CGO_ENABLED=0 go build -trimpath '-buildvcs=false' '-ldflags=-s -w -X main.version='$version -o rc .
 	echo 'built ./rc'
 }
 
@@ -75,7 +90,7 @@ fn build_release {
 	arch = $2
 	echo 'Building release for' $os $arch
 	out = dist/rc-$os-$arch
-	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath '-buildvcs=false' '-ldflags=-s -w' -o $out .
+	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath '-buildvcs=false' '-ldflags=-s -w -X main.version='$version -o $out .
 }
 
 fn cmd_release {

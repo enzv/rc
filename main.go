@@ -16,6 +16,9 @@ import (
 
 const defaultCommandName = "rc"
 
+// version is set at build time.
+var version = "devel"
+
 func printMainError(err error) {
 	fmt.Fprintln(os.Stderr, defaultCommandName+":", err)
 }
@@ -264,6 +267,11 @@ func runRcrc(env *shellEnv) error {
 func main() {
 	flags := ParseFlags(os.Args[1:])
 
+	if flags.Version {
+		fmt.Printf("rc (enzv) %s\n", version)
+		os.Exit(0)
+	}
+
 	if shouldRunInteractive(flags, os.Stdin) {
 		env, err := newShellEnv(nil, "")
 		if err != nil {
@@ -437,6 +445,7 @@ type rcFlags struct {
 	Debug        bool
 	PrintStatus  bool
 	LexicalTrace bool
+	Version      bool
 
 	Args []string
 }
@@ -447,6 +456,10 @@ func ParseFlags(args []string) rcFlags {
 	var i int
 	for i = 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--version" {
+			flags.Version = true
+			continue
+		}
 		if len(arg) < 2 || arg[0] != '-' {
 			break
 		}
