@@ -1,0 +1,11 @@
+x=a
+switch($x) {
+case a
+    if(~ 1 1) {
+        echo nested-start
+        echo case not-a-switch-case
+    }
+    echo nested-end
+case *
+    echo no
+}

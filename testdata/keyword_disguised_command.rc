@@ -1,0 +1,7 @@
+fn 'if' { echo quoted-if:$* }
+fn i^n { echo caret-in:$* }
+fn f'or' { echo quoted-for:$* }
+
+'if' ok
+i^n ok
+f'or' ok

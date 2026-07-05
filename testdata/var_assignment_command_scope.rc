@@ -1,0 +1,5 @@
+x=outer
+x=inner echo temp:$x
+echo after-temp:$x
+x=changed
+echo after-set:$x

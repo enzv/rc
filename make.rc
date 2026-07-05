@@ -1,0 +1,149 @@
+#!/usr/bin/env rc
+
+fn die {
+	echo 'make.rc:' $* >[1=2]
+	exit 1
+}
+
+fn usage {
+	die 'usage: go run . make.rc [lint|test|bench|build|release|all|clean]'
+}
+
+fn need {
+	for(tool in $*) {
+		if(! whatis $tool >[1]/dev/null >[2]/dev/null)
+			die 'required tool not found:' $tool
+	}
+}
+
+if(~ $#* 0)
+	usage
+
+if(! ~ $#* 1)
+	usage
+
+if(! test -f go.mod)
+	die 'must be run from the repository root'
+
+container_runtime=podman
+if(! ~ $#CONTAINER_RUNTIME 0)
+	container_runtime=$CONTAINER_RUNTIME
+
+ref_image=localhost/rc-plan9port-ref:latest
+if(! ~ $#RC_REF_IMAGE 0)
+	ref_image=$RC_REF_IMAGE
+
+fn ensure_image {
+	if(! test -f Containerfile.plan9port)
+		die 'missing Containerfile.plan9port'
+
+	need $container_runtime
+
+	$container_runtime build \
+		-t $1 \
+		-f Containerfile.plan9port \
+		.
+}
+
+fn run_go_test {
+	ensure_image $ref_image
+	echo "Running go test $*..."
+	CONTAINER_RUNTIME=$container_runtime RC_REF_IMAGE=$ref_image go test -v $*
+}
+
+fn cmd_lint {
+	go fmt ./...
+	go vet ./...
+	go mod tidy
+}
+
+fn cmd_test {
+	run_go_test '-count=1' -race '-buildvcs=false' ./...
+}
+
+fn cmd_bench {
+	run_go_test '-run=^$' '-bench=.' '-count=5' '-buildvcs=false' ./...
+}
+
+fn cmd_build {
+	go build '-buildvcs=false' -o rc .
+	echo 'built ./rc'
+}
+
+fn build_release {
+	os = $1
+	arch = $2
+	echo 'Building release for' $os $arch
+	out = dist/rc-$os-$arch
+	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath '-buildvcs=false' '-ldflags=-s -w' -o $out .
+}
+
+fn cmd_release {
+	mkdir -p dist
+	build_release android arm64
+	build_release aix ppc64
+	build_release darwin amd64
+	build_release darwin arm64
+	build_release dragonfly amd64
+	build_release freebsd 386
+	build_release freebsd amd64
+	build_release freebsd arm
+	build_release freebsd arm64
+	build_release illumos amd64
+	build_release linux 386
+	build_release linux amd64
+	build_release linux arm
+	build_release linux arm64
+	build_release linux ppc64
+	build_release linux ppc64le
+	build_release linux mips
+	build_release linux mipsle
+	build_release linux mips64
+	build_release linux mips64le
+	build_release linux riscv64
+	build_release linux loong64
+	build_release linux s390x
+	build_release netbsd 386
+	build_release netbsd amd64
+	build_release netbsd arm
+	build_release netbsd arm64
+	build_release openbsd 386
+	build_release openbsd amd64
+	build_release openbsd arm
+	build_release openbsd arm64
+	build_release openbsd ppc64
+	build_release openbsd riscv64
+	build_release solaris amd64
+	echo 'Releases built in dist/'
+}
+
+fn cmd_all {
+	cmd_lint
+	cmd_test
+	cmd_build
+}
+
+fn cmd_clean {
+	rm -f rc
+	rm -rf dist
+	echo 'clean'
+}
+
+switch($1) {
+case lint
+	cmd_lint
+case test
+	cmd_test
+case bench
+	cmd_bench
+case build
+	cmd_build
+case release
+	cmd_release
+case all
+	cmd_all
+case clean
+	cmd_clean
+case *
+	usage
+}

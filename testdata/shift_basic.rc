@@ -1,0 +1,5 @@
+echo before:$"*
+shift
+echo after-one:$"*
+shift 2
+echo after-two:$"*

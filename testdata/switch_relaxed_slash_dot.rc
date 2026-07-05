@@ -1,0 +1,17 @@
+x=sub/end
+switch($x) {
+case '*end'
+	echo slash-relaxed
+}
+
+x=.hidden
+switch($x) {
+case '*hidden'
+	echo dot-relaxed
+}
+
+x=../up
+switch($x) {
+case '*up'
+	echo dotdot-relaxed
+}

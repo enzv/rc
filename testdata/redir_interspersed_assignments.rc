@@ -1,0 +1,8 @@
+x=outer
+x=v >out.txt echo value:$x
+cat out.txt
+echo after:$x
+
+>[2]err.txt x=w echo errvalue:$x >[1=2]
+cat err.txt
+echo after2:$x

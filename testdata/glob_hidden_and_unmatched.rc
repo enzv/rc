@@ -1,0 +1,5 @@
+echo visible > plain
+echo hidden > .hidden
+echo unmatched: no-such-*.txt
+echo visible: *
+echo hidden-explicit: .hidden

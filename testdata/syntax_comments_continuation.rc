@@ -1,0 +1,5 @@
+echo one # ignored
+echo two\
+three
+echo four; echo five
+echo '# not a comment inside quotes'

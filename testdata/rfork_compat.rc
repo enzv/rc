@@ -1,0 +1,3 @@
+rfork e
+if(~ $status '')
+    echo rfork-ok

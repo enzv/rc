@@ -1,0 +1,4 @@
+x=hello
+cat <<EOF
+$x^world
+EOF

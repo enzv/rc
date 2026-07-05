@@ -1,0 +1,7 @@
+fn inner { echo inner:$"* }
+fn outer {
+    echo outer:$"*
+    inner x y
+    echo outer-again:$"*
+}
+outer a b

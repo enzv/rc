@@ -1,0 +1,16 @@
+rfork n
+echo n:$status
+rfork N
+echo N:$status
+rfork e
+echo e:$status
+rfork E
+echo E:$status
+rfork s
+echo s:$status
+rfork f
+echo f:$status
+rfork F
+echo F:$status
+rfork m
+echo m:$status

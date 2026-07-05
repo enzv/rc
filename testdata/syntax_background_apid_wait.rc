@@ -1,0 +1,5 @@
+{ } &
+if(~ $#apid 1)
+    echo apid-set
+wait
+echo waited

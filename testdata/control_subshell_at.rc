@@ -1,0 +1,3 @@
+x=outer
+@ { x=inner; echo inside:$x }
+echo outside:$x

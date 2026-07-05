@@ -1,0 +1,5 @@
+fn f { echo old }
+f
+fn f
+fn f { echo new }
+f

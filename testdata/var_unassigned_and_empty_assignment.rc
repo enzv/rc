@@ -1,0 +1,4 @@
+echo missing:$missing
+x=''
+echo empty:$x
+echo empty-count:$#x

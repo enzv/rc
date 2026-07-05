@@ -1,0 +1,6 @@
+if(~ a a)
+    echo if-ok
+if(~ a b)
+    echo no
+if not
+    echo if-not

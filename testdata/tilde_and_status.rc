@@ -1,0 +1,6 @@
+~ abc a*
+if(~ $status '')
+    echo match
+~ abc z*
+if(! ~ $status '')
+    echo nomatch

@@ -1,0 +1,3 @@
+echo 'a'b
+echo 'left'right
+echo 'x'$"missing

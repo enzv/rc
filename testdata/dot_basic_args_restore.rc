@@ -1,0 +1,4 @@
+echo 'echo dot:$"*' > inner.rc
+echo outer-before:$"*
+. ./inner.rc a b
+echo outer-after:$"*

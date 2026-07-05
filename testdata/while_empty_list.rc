@@ -1,0 +1,5 @@
+while() {
+	echo once
+	exit 0
+}
+echo never

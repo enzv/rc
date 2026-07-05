@@ -1,0 +1,4 @@
+stem=base
+flags=(a b)
+echo $stem.rc
+echo -$flags

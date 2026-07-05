@@ -1,0 +1,4 @@
+x=amber
+y=(one two three)
+echo x:$x
+echo y:$y

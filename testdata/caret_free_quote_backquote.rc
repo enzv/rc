@@ -1,0 +1,3 @@
+x=X
+echo pre'$x'
+echo pre`{echo mid}post

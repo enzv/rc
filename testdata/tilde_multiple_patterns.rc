@@ -1,0 +1,7 @@
+~ beta a* b* c*
+if(~ $status '')
+	echo multi-match
+
+~ delta a* b* c*
+if(! ~ $status '')
+	echo multi-no-match

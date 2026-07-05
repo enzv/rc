@@ -1,0 +1,7 @@
+x=(a b)
+fn f { echo f }
+path=(/bin /usr/bin)
+whatis x
+whatis f
+whatis echo
+whatis cat

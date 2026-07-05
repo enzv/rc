@@ -1,0 +1,3 @@
+echo old > conn.txt
+echo new <>conn.txt >[1=0]
+cat conn.txt

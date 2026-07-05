@@ -1,0 +1,12 @@
+echo one >[2]err.txt >[1=2]
+echo two >>[2]err.txt >[1=2]
+echo err:
+cat err.txt
+
+echo amber > in.txt
+echo input:
+cat <[3]in.txt <[0=3]
+
+echo beta > rw.txt
+echo readwrite:
+cat <>[3]rw.txt <[0=3]

@@ -1,0 +1,9 @@
+mkdir -p home parent/child
+home=`{pwd}^/home
+cd parent/child
+echo child:`{pwd}
+cd
+echo home:`{pwd}
+cdpath=(../parent parent)
+cd child
+echo cdpath:`{pwd}

@@ -1,0 +1,2 @@
+rfork
+echo status:$status

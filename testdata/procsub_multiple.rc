@@ -1,0 +1,1 @@
+cat <{echo amber} <{echo beta}

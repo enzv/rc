@@ -1,0 +1,3 @@
+x=`{echo core}
+echo pre^$x^post
+echo a`{echo b}c

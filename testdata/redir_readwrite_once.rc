@@ -1,0 +1,2 @@
+echo amber > rw.txt
+cat <> rw.txt

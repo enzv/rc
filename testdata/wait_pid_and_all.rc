@@ -1,0 +1,8 @@
+sleep 0 &
+p=$apid
+wait $p
+echo waited-pid
+sleep 0 &
+sleep 0 &
+wait
+echo waited-all

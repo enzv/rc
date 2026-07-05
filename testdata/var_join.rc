@@ -1,0 +1,4 @@
+x=(a b c)
+y=()
+echo join:$"x
+echo empty:$"y

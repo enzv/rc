@@ -1,0 +1,7 @@
+if(~ a b; ~ c c)
+	echo last-ok
+
+if(~ a a; ~ c d)
+	echo no
+if not
+	echo last-miss

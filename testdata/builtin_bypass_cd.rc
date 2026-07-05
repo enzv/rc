@@ -1,0 +1,6 @@
+mkdir -p dir
+fn cd { echo function-cd:$* }
+cd dir
+echo after-function-cd
+builtin cd ..
+echo after-builtin-cd

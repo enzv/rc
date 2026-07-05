@@ -1,0 +1,6 @@
+x=again
+while(~ $x again) {
+    echo loop
+    x=done
+}
+echo after

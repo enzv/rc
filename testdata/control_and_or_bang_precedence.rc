@@ -1,0 +1,5 @@
+~ a a && echo and-ok
+~ a b || echo or-ok
+! ~ a b && echo bang-ok
+~ a a || echo no
+~ a b && echo no

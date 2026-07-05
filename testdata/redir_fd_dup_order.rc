@@ -1,0 +1,6 @@
+{ echo out; echo err >[1=2] } > both.txt >[2=1]
+echo both:
+cat both.txt
+{ echo out; echo err >[1=2] } >[2=1] > out.txt
+echo out-only:
+cat out.txt

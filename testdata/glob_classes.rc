@@ -1,0 +1,6 @@
+echo a > qa
+echo b > qb
+echo c > qc
+echo z > qz
+echo class: q[ab]
+echo complement: q[~z]

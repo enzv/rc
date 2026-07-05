@@ -1,0 +1,11 @@
+~ sub/end '*end'
+if(~ $status '')
+	echo slash-relaxed
+
+~ .hidden '*hidden'
+if(~ $status '')
+	echo dot-relaxed
+
+~ ../up '*up'
+if(~ $status '')
+	echo dotdot-relaxed

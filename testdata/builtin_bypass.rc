@@ -1,0 +1,3 @@
+fn echo { builtin echo function-echo:$* }
+echo a b
+builtin echo raw a b

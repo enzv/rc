@@ -1,0 +1,7 @@
+x=beta
+switch($x) {
+case a* b*
+	echo multi-match
+case *
+	echo no
+}

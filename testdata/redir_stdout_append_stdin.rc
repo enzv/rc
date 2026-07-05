@@ -1,0 +1,3 @@
+echo amber > out.txt
+echo beta >> out.txt
+cat < out.txt

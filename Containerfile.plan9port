@@ -1,0 +1,33 @@
+ARG PLAN9PORT_REF=master
+
+FROM docker.io/library/debian:bookworm-slim
+
+ARG PLAN9PORT_REF
+
+ENV PLAN9=/opt/plan9port
+ENV PATH=/opt/plan9port/bin:/usr/bin:/bin
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates \
+		curl \
+		make \
+		gcc \
+		libc6-dev \
+		libfontconfig1-dev \
+		libx11-dev \
+		libxext-dev \
+		libxt-dev \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p "$PLAN9" \
+	&& curl -fsSL "https://codeload.github.com/9fans/plan9port/tar.gz/${PLAN9PORT_REF}" -o /tmp/plan9port.tar.gz \
+	&& tar -xzf /tmp/plan9port.tar.gz --strip-components=1 -C "$PLAN9" \
+	&& cd "$PLAN9" \
+	&& ./INSTALL \
+	&& test -x "$PLAN9/bin/rc" \
+	&& rm -f /tmp/plan9port.tar.gz
+
+WORKDIR /work
+
+ENTRYPOINT ["/opt/plan9port/bin/rc"]

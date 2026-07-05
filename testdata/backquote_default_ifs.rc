@@ -1,0 +1,3 @@
+x=`{echo 'a b	c'}
+echo count:$#x
+echo values:$x

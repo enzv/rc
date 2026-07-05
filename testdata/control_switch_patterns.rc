@@ -1,0 +1,10 @@
+x=abc
+switch($x) {
+case zzz
+    echo no
+case a*
+    echo match-a
+    echo still-a
+case *
+    echo no
+}

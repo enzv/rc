@@ -1,0 +1,3 @@
+x=ok
+eval echo eval:$x
+eval 'echo quoted eval'

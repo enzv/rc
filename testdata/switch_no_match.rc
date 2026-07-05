@@ -1,0 +1,7 @@
+switch(x) {
+case y
+	echo no
+case z
+	echo no
+}
+echo after

@@ -1,0 +1,4 @@
+path=(./bin)
+hello one
+./hello two
+bin/hello three

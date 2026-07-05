@@ -1,0 +1,3 @@
+echo 'hello world'
+echo 'it''s rc'
+echo for in while if not switch fn '~' '!' '@'

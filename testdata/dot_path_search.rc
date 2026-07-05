@@ -1,0 +1,6 @@
+mkdir -p scripts
+echo 'echo dotpath:$"*' > scripts/inner.rc
+path=(./scripts /bin /usr/bin)
+echo outer-before:$"*
+. inner.rc a b
+echo outer-after:$"*

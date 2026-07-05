@@ -1,0 +1,2 @@
+echo amber > data.txt
+cat <>[3]data.txt <[0=3]

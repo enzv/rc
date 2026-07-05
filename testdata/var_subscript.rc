@@ -1,0 +1,5 @@
+x=(a b c d)
+echo one:$x(1)
+echo many:$x(1 3)
+echo range:$x(2-3)
+echo open:$x(3-)

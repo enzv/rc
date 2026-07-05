@@ -1,0 +1,6 @@
+fn f {
+    echo inner:$"*
+}
+echo outer-before:$"*
+f a b
+echo outer-after:$"*

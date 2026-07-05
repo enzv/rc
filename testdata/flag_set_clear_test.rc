@@ -1,0 +1,6 @@
+flag x +
+if(flag x)
+    echo x-on
+flag x -
+if(! flag x)
+    echo x-off

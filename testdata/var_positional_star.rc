@@ -1,0 +1,4 @@
+echo star:$"*
+echo one:$1
+echo two:$2
+echo four:$4

@@ -1,0 +1,6 @@
+fn f {
+    cat <<EOF
+heredoc in fn
+EOF
+}
+f

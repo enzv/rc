@@ -1,0 +1,12 @@
+echo a > a.txt
+echo b > b.txt
+echo d > d.txt
+echo range: [a-c].txt
+
+mkdir -p sub
+echo sub > sub/a.txt
+echo slash: sub/*.txt
+
+mkdir -p parent/child
+cd parent/child
+echo dotdot: ../*

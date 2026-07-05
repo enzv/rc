@@ -1,0 +1,8 @@
+echo amber > out.txt >[2=1]
+echo pair-output-ok
+
+echo beta > in.txt
+cat <[3]in.txt <[0=3]
+
+echo gamma > rw.txt
+cat <>[3]rw.txt <>[0=3]

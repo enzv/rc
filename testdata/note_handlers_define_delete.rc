@@ -1,0 +1,11 @@
+fn sighup { echo hup }
+fn sigint { echo int }
+fn sigalrm { echo alrm }
+fn sigfpe { echo fpe }
+
+fn sighup
+fn sigint
+fn sigalrm
+fn sigfpe
+
+echo notes-ok
