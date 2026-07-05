@@ -1,9 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 16 15" fill="none" shape-rendering="crispEdges">
-  <rect x="0" y="4" width="4" height="11" fill="#000000"/>
-  <rect x="0" y="4" width="16" height="4" fill="#000000"/>
-  <rect x="8" y="4" width="4" height="11" fill="#000000"/>
-  <rect x="8" y="11" width="8" height="4" fill="#000000"/>
-</svg>
+![Logo](./logo.svg)
 
 <br>
 
