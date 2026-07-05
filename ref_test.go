@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -257,10 +258,15 @@ func runReferenceCommand(t *testing.T, work string, tc refFixture) commandResult
 	t.Helper()
 	args := []string{
 		"run", "-i", "--rm",
-		"-v", work + ":/work",
+	}
+	if referenceRuntime() == "docker" {
+		args = append(args, "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
+	}
+	args = append(args,
+		"-v", work+":/work",
 		"-w", "/work",
 		referenceImage(),
-	}
+	)
 	return runCommand(t, referenceRuntime(), args, work, "./case.rc", tc)
 }
 
