@@ -110,6 +110,49 @@ func TestExportEnv(t *testing.T) {
 	}
 }
 
+func TestExportEnvPrefersShellPath(t *testing.T) {
+	e := &shellEnv{
+		vars: map[string][]string{
+			"PATH": {"/stale/bin:/usr/bin"},
+			"path": {"/fresh/bin", "/bin"},
+		},
+		fns:   map[string]*Tree{},
+		jobs:  newJobState(),
+		flags: map[string]bool{},
+	}
+
+	envStrings := e.exportEnv()
+	gotPath := envEntryValue(t, envStrings, "PATH")
+	wantPath := strings.Join([]string{"/fresh/bin", "/bin"}, string(os.PathListSeparator))
+	if gotPath != wantPath {
+		t.Fatalf("exported PATH = %q, want %q", gotPath, wantPath)
+	}
+
+	for _, entry := range envStrings {
+		if strings.HasPrefix(entry, "path=") {
+			t.Fatalf("exported environment should not include raw path entry: %v", envStrings)
+		}
+	}
+}
+
+func TestExportEnvFallsBackToImportedPATH(t *testing.T) {
+	e := &shellEnv{
+		vars: map[string][]string{
+			"PATH": {"/usr/local/bin:/usr/bin"},
+		},
+		fns:   map[string]*Tree{},
+		jobs:  newJobState(),
+		flags: map[string]bool{},
+	}
+
+	envStrings := e.exportEnv()
+	gotPath := envEntryValue(t, envStrings, "PATH")
+	wantPath := "/usr/local/bin:/usr/bin"
+	if gotPath != wantPath {
+		t.Fatalf("exported PATH = %q, want %q", gotPath, wantPath)
+	}
+}
+
 func TestShellEnvMutationHelpers(t *testing.T) {
 	cases := []struct {
 		name string
@@ -393,6 +436,20 @@ func wordSlice(word *Word) []string {
 		out = append(out, word.Word)
 	}
 	return out
+}
+
+func envEntryValue(t *testing.T, env []string, name string) string {
+	t.Helper()
+
+	prefix := name + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+
+	t.Fatalf("environment missing %s entry: %v", name, env)
+	return ""
 }
 
 func BenchmarkEnvGetSet(b *testing.B) {

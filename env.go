@@ -103,21 +103,15 @@ func (e *shellEnv) importEnv(environ []string) {
 
 func (e *shellEnv) exportEnv() []string {
 	var env []string
-	hasUpperPath := false
-	for name := range e.vars {
-		if name == "PATH" {
-			hasUpperPath = true
-		}
+
+	if path, ok := e.vars["path"]; ok {
+		env = append(env, "PATH="+strings.Join(path, string(os.PathListSeparator)))
+	} else if path, ok := e.vars["PATH"]; ok {
+		env = append(env, "PATH="+strings.Join(path, "\x01"))
 	}
+
 	for name, values := range e.vars {
-		if name == "argv0" || name == "*" || name == "apid" {
-			continue
-		}
-		if name == "path" && !hasUpperPath {
-			env = append(env, "PATH="+strings.Join(values, ":"))
-			continue
-		}
-		if name == "path" && hasUpperPath {
+		if name == "argv0" || name == "*" || name == "apid" || name == "path" || name == "PATH" {
 			continue
 		}
 		env = append(env, name+"="+strings.Join(values, "\x01"))
