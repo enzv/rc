@@ -13,6 +13,9 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 const minExtraFd = 3
@@ -375,7 +378,22 @@ func (r *runner) execExternal(args []string) error {
 	cmd.Stdout = r.stdout
 	cmd.Stderr = r.stderr
 	cmd.ExtraFiles = r.extraFiles
+
+	interactive := r.env.flags["i"] && term.IsTerminal(0)
+	if interactive {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid:    true,
+			Foreground: true,
+			Ctty:       0,
+		}
+	}
+
 	err := cmd.Run()
+
+	if interactive {
+		// Reclaim the terminal for rc's process group.
+		_ = unix.IoctlSetPointerInt(0, unix.TIOCSPGRP, unix.Getpgrp())
+	}
 	if err == nil {
 		r.env.setStatus("")
 		return nil

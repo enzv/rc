@@ -524,6 +524,7 @@ doneFlags:
 
 func setupSignals(r *runner) {
 	c := make(chan os.Signal, 1)
+	signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN, syscall.SIGTSTP)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGALRM)
 	go func() {
 		for sig := range c {
