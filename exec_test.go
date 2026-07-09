@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +73,49 @@ func TestRunnerExitCode(t *testing.T) {
 			r := &runner{env: &shellEnv{vars: map[string][]string{"status": {tc.status}}}}
 			if got := r.exitCode(); got != tc.want {
 				t.Fatalf("exitCode(%q) = %d, want %d", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestShouldForeground(t *testing.T) {
+	tempFile := func(t *testing.T) *os.File {
+		t.Helper()
+		file, err := os.CreateTemp(t.TempDir(), "stdin-*")
+		if err != nil {
+			t.Fatalf("CreateTemp: %v", err)
+		}
+		t.Cleanup(func() { _ = file.Close() })
+		return file
+	}
+
+	cases := []struct {
+		name string
+		r    *runner
+		want bool
+	}{
+		{
+			name: "noninteractive",
+			r:    &runner{env: &shellEnv{flags: map[string]bool{}}, stdin: strings.NewReader("x")},
+			want: false,
+		},
+		{
+			name: "pipe reader",
+			r:    &runner{env: &shellEnv{flags: map[string]bool{"i": true}}, stdin: strings.NewReader("x")},
+			want: false,
+		},
+		{
+			name: "regular file",
+			r:    &runner{env: &shellEnv{flags: map[string]bool{"i": true}}, stdin: tempFile(t)},
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.r.shouldForeground(); got != tc.want {
+				t.Fatalf("shouldForeground() = %v, want %v", got, tc.want)
 			}
 		})
 	}

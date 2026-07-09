@@ -378,7 +378,7 @@ func (r *runner) execExternal(args []string) error {
 	cmd.Stderr = r.stderr
 	cmd.ExtraFiles = r.extraFiles
 
-	interactive := r.env.flags["i"] && term.IsTerminal(0)
+	interactive := r.shouldForeground()
 	if interactive {
 		cmd.SysProcAttr = foregroundSysProcAttr()
 	}
@@ -402,6 +402,17 @@ func (r *runner) execExternal(args []string) error {
 	_, _ = fmt.Fprintf(r.stderr, "%s: %v\n", args[0], err)
 	r.env.setStatus(args[0] + ": not found")
 	return nil
+}
+
+func (r *runner) shouldForeground() bool {
+	if !r.env.flags["i"] {
+		return false
+	}
+	file, ok := r.stdin.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func (r *runner) exportEnv() []string {
