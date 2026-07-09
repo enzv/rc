@@ -1398,30 +1398,136 @@ func (r *runner) execWhatis(args []string) error {
 	return nil
 }
 
-func (r *runner) execRfork(args []string) error {
-	switch len(args) {
-	case 0:
-		_, _ = fmt.Fprintln(r.diag, "rc: rfork failed")
-		r.env.setStatus("rfork failed")
-	case 1:
-		switch args[0] {
-		case "n", "e", "s":
-			r.env.setStatus("")
-		case "N", "E", "f", "F":
-			_, _ = fmt.Fprintln(r.diag, "rc: rfork failed")
-			r.env.setStatus("rfork failed")
-		case "m":
-			_, _ = fmt.Fprintln(r.diag, "Usage: rfork [nNeEsfF]")
-			r.env.setStatus("rfork usage")
+func parseRforkArgs(args []string) (rforkFlags, error) {
+	if len(args) == 0 {
+		args = []string{"ens"}
+	}
+	if len(args) != 1 {
+		return rforkFlags{}, errRforkUsage
+	}
+
+	var f rforkFlags
+	for i := 0; i < len(args[0]); i++ {
+		switch args[0][i] {
+		case 'n':
+			f.nameNew = true
+		case 'N':
+			f.nameClean = true
+		case 'e':
+			f.envNew = true
+		case 'E':
+			f.envClean = true
+		case 's':
+			f.noteNew = true
+		case 'f':
+			f.fdNew = true
+		case 'F':
+			f.fdClean = true
+		case 'm':
+			// Accept m because rc(1) documents RFNOMNT, even though plan9port's
+			// plan9ish.c usage string omits it.
+			f.noMount = true
 		default:
-			_, _ = fmt.Fprintln(r.diag, "Usage: rfork [nNeEsfF]")
-			r.env.setStatus("rfork usage")
+			return rforkFlags{}, errRforkUsage
 		}
-	default:
-		_, _ = fmt.Fprintln(r.diag, "Usage: rfork [nNeEsfF]")
+	}
+	return f, nil
+}
+
+func (r *runner) execRfork(args []string) error {
+	flags, err := parseRforkArgs(args)
+	if err != nil {
+		fmt.Fprintln(r.diag, "Usage: rfork [nNeEsfFm]")
 		r.env.setStatus("rfork usage")
+		return nil
+	}
+
+	if err := r.applyRfork(flags); err != nil {
+		fmt.Fprintf(r.diag, "rc: rfork failed: %v\n", err)
+		r.env.setStatus("rfork failed")
+	} else {
+		r.env.setStatus("")
 	}
 	return nil
+}
+
+func (r *runner) applyRfork(flags rforkFlags) error {
+	// envNew (e/RFENVG) is a no-op: each runner has its own independent
+	// shellEnv; there is no shared env group to fork from.
+
+	if flags.fdNew {
+		return errors.New("unsupported flag f (fd table cloning not implemented)")
+	}
+
+	if err := validateRforkOS(flags); err != nil {
+		return err
+	}
+
+	if err := applyRforkOS(flags); err != nil {
+		return err
+	}
+
+	if flags.envClean {
+		r.cleanEnv()
+	}
+
+	if flags.fdClean {
+		r.cleanFDs()
+	}
+
+	return nil
+}
+
+func (r *runner) cleanEnv() {
+	// Preserve essential shell variables before clearing
+	varStatus := r.env.lookup("status")
+	varPath := r.env.lookup("path")
+	varIfs := r.env.lookup("ifs")
+	varPrompt := r.env.lookup("prompt")
+	varHome := r.env.lookup("home")
+	varPid := r.env.lookup("pid")
+	varApid := r.env.lookup("apid")
+
+	r.env.vars = make(map[string][]string)
+	r.env.fns = make(map[string]*Tree)
+
+	// Restore essential shell variables
+	if varStatus != nil {
+		r.env.set("status", varStatus)
+	}
+	if varPath != nil {
+		r.env.set("path", varPath)
+	}
+	if varIfs != nil {
+		r.env.set("ifs", varIfs)
+	}
+	if varPrompt != nil {
+		r.env.set("prompt", varPrompt)
+	}
+	if varHome != nil {
+		r.env.set("home", varHome)
+	}
+	if varPid != nil {
+		r.env.set("pid", varPid)
+	}
+	if varApid != nil {
+		r.env.set("apid", varApid)
+	}
+}
+
+// cleanFDs implements the shell-managed subset of RFCFDG.
+// It closes only extra file descriptors tracked by the runner; it does not
+// clone or isolate the process fd table. True fd group isolation (RFFDG)
+// is not implemented and is rejected at the rfork validation stage.
+func (r *runner) cleanFDs() {
+	for _, f := range r.extraFiles {
+		if f != nil {
+			_ = f.Close()
+		}
+	}
+	r.extraFiles = nil
+	r.fdReaders = make(map[int]io.Reader)
+	r.fdWriters = make(map[int]io.Writer)
 }
 
 func formatWhatisValues(values []string) string {
