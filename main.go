@@ -64,10 +64,7 @@ func promptStrings(env *shellEnv) (string, string) {
 				SuppressSigexit: true,
 			})
 			env.set("status", savedStatus)
-			primary = buf.String()
-			if strings.HasSuffix(primary, "\n") {
-				primary = primary[:len(primary)-1]
-			}
+			primary = strings.TrimSuffix(buf.String(), "\n")
 		}
 	}
 

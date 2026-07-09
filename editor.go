@@ -249,10 +249,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 				content, _ := os.ReadFile(f.Name())
 				os.Remove(f.Name())
 
-				s := string(content)
-				if strings.HasSuffix(s, "\n") {
-					s = s[:len(s)-1]
-				}
+				s := strings.TrimSuffix(string(content), "\n")
 				buf = []rune(s)
 				pos = len(buf)
 			}

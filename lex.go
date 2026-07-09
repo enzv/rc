@@ -21,10 +21,6 @@ type LexToken struct {
 	Pos    Position
 }
 
-func (t LexToken) KindString() string {
-	return tokenName(t.Kind)
-}
-
 // Lexer converts source text into a stream of tokens for parsing.
 type Lexer struct {
 	src       string
