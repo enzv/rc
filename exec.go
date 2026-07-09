@@ -14,7 +14,6 @@ import (
 	"sync"
 	"syscall"
 
-	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -381,18 +380,14 @@ func (r *runner) execExternal(args []string) error {
 
 	interactive := r.env.flags["i"] && term.IsTerminal(0)
 	if interactive {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid:    true,
-			Foreground: true,
-			Ctty:       0,
-		}
+		cmd.SysProcAttr = foregroundSysProcAttr()
 	}
 
 	err := cmd.Run()
 
 	if interactive {
 		// Reclaim the terminal for rc's process group.
-		_ = unix.IoctlSetPointerInt(0, unix.TIOCSPGRP, unix.Getpgrp())
+		reclaimTerminal()
 	}
 	if err == nil {
 		r.env.setStatus("")
