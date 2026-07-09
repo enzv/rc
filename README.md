@@ -9,6 +9,7 @@ A memory-safe, cross-platform 2MB static binary.
 - Native interactive line editing and command history without `rlwrap`
 - Unix native support for Linux, macOS, and BSDs spanning 30+ architectures
 - Single statically compiled binary with a low memory footprint
+- A best-effort Unix implementation of rfork behavior
 - AST-based interpreter providing fast and predictable execution
 - Native concurrency mapping `&` background tasks directly to goroutines
 - Core Plan 9 mechanics like closures, list flattening, and caret concatenation

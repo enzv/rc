@@ -2,7 +2,8 @@
 //
 // If you want the syntax, go read the original Plan 9 rc(1) man page:
 // https://github.com/plan9foundation/plan9/blob/main/sys/man/1/rc.
-// We reconstructed the exact AST semantics. If it works in the original, it works here.
+// We reconstructed the core syntax and execution model, but this port does
+// not promise identical process behavior on every host.
 //
 // This document exists to explain the underlying architecture, specifically how
 // this Go implementation deviates from, extends, and fixes the original C codebase.
@@ -59,6 +60,84 @@
 //
 // This avoids the filesystem completely. It relies on the Go runtime to manage
 // descriptor inheritance and is vastly more resilient across platforms.
+//
+// # rfork and OS-specific behavior
+//
+// rc keeps the Plan 9 rfork idea, but this port does not try to reproduce the
+// full Plan 9 process model. Each flag is handled in one of two ways:
+//
+//   1. shell-local state changes that rc can perform directly
+//   2. OS-level changes that are applied only when the current platform can
+//      represent them safely.
+//
+// The rule is explicit. Supported behavior is applied, unsupported behavior is
+// rejected before the shell mutates any state.
+//
+// The current flag mapping is
+//
+//   e   RFENVG
+//       Shell-local no-op. Each runner already owns an independent shellEnv,
+//       so there is nothing to clone.
+//
+//   E   RFCENVG
+//       Clear shell variables and functions. Keep the essentials that rc needs
+//       to keep running. Preserve status, path, ifs, prompt, home, pid, and
+//       apid.
+//
+//   F   RFCFDG
+//       Close the runner-tracked extra file descriptors.
+//
+//   s   RFNOTEG
+//       On POSIX platforms, place the child in a new process group with
+//       setpgid(0, 0).
+//
+//   n   RFNAMEG
+//       On Linux, unshare the mount namespace with CLONE_NEWNS.
+//
+//   N   RFCNAMEG
+//       Unsupported.
+//
+//   f   RFFDG
+//       Unsupported. rc does not clone the full file descriptor table.
+//
+//   m   RFNOMNT
+//       Accepted by the parser, but rejected during validation. There is no
+//       Unix equivalent here.
+//
+// Examples
+//
+//   # Clear user-defined shell state for the current runner.
+//   rfork E
+//   whatis myfunc
+//   echo $status
+//
+//   # Close extra runner-managed file descriptors before continuing.
+//   rfork F
+//   echo ok
+//
+//   # Move a child into its own process group on POSIX.
+//   rfork s
+//   sleep 10 &
+//
+//   # Request a new mount namespace on Linux.
+//   rfork n
+//   echo isolated
+//
+// Unsupported flags fail early
+//
+//   rfork m
+//   rfork f
+//
+// This port accepts the flags as one combined string
+//
+//   rfork enF
+//
+// Empty arguments default to the common ens behavior. Multiple separate
+// arguments are a usage error.
+//
+// The important part is not pretending that Unix can represent every Plan 9
+// process-group or namespace operation exactly. rc keeps the behavior
+// explicit: if the OS can do it, rc applies it; if not, rc says so plainly.
 //
 // # Startup Configuration
 //
