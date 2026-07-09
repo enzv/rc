@@ -93,7 +93,7 @@ func TestCLIStartup(t *testing.T) {
 		{
 			name:   "default prompt",
 			args:   []string{"-c", "whatis prompt"},
-			stdout: "prompt=('% ' '\t')\n",
+			stdout: "prompt=('% ' '')\n",
 		},
 		{
 			name:   "batch stdin no prompt",
@@ -168,7 +168,7 @@ func TestInteractiveCases(t *testing.T) {
 			setup:       func(t *testing.T) string { return "if(~ x x) {\necho ok\n}\n" },
 			stdout:      "ok\n",
 			checkStdout: true,
-			stderr:      "% \t\t% ",
+			stderr:      "% % ",
 			checkStderr: true,
 			exitCode:    0,
 		},

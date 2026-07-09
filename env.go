@@ -72,7 +72,7 @@ func newShellEnv(args []string, cwd string) (*shellEnv, error) {
 		env.vars["ifs"] = []string{" ", "\t", "\n"}
 	}
 	if len(env.vars["prompt"]) == 0 {
-		env.vars["prompt"] = []string{"% ", "\t"}
+		env.vars["prompt"] = []string{"% ", ""}
 	}
 
 	path := filepathList(os.Getenv("PATH"))

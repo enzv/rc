@@ -44,7 +44,7 @@ func shouldRunInteractive(flags rcFlags, stdin *os.File) bool {
 func promptStrings(env *shellEnv) (string, string) {
 	prompt := env.lookup("prompt")
 	primary := "% "
-	continuation := "\t"
+	continuation := ""
 	if len(prompt) > 0 && prompt[0] != "" {
 		primary = prompt[0]
 	}
