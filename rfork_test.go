@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestApplyRforkOS(t *testing.T) {
@@ -12,14 +18,17 @@ func TestApplyRforkOS(t *testing.T) {
 		t.Errorf("applyRforkOS(e/f) failed: %v", err)
 	}
 
-	// s (noteNew) is supported on POSIX via setpgid.
-	if err := applyRforkOS(rforkFlags{noteNew: true}); err != nil {
-		t.Logf("applyRforkOS(s) returned: %v", err)
-	}
-
 	// m (noMount) must fail at validation since no Unix equivalent exists.
 	if err := validateRforkOS(rforkFlags{noMount: true}); err == nil {
 		t.Errorf("validateRforkOS(m) unexpectedly succeeded, want error")
+	}
+
+	if err := validateRforkOS(rforkFlags{nameNew: true}); err == nil {
+		runRforkOSHelper(t, "n")
+	}
+
+	if err := validateRforkOS(rforkFlags{noteNew: true}); err == nil {
+		runRforkOSHelper(t, "s")
 	}
 }
 
@@ -86,6 +95,41 @@ func newTestRunner(t *testing.T) (*runner, *shellEnv) {
 		fdWriters: make(map[int]io.Writer),
 	}
 	return r, env
+}
+
+func runRforkOSHelper(t *testing.T, flag string) {
+	t.Helper()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestApplyRforkOSHelper")
+	cmd.Env = append(os.Environ(), "RFORK_OS_HELPER="+flag)
+
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("rfork helper %q failed: %v\n%s", flag, err, output.String())
+	}
+}
+
+func TestApplyRforkOSHelper(t *testing.T) {
+	switch os.Getenv("RFORK_OS_HELPER") {
+	case "":
+		t.Skip("helper subprocess only")
+	case "n":
+		if err := applyRforkOS(rforkFlags{nameNew: true}); err != nil {
+			if errors.Is(err, unix.EPERM) {
+				t.Skipf("applyRforkOS(n) requires mount-namespace permission: %v", err)
+			}
+			t.Fatalf("applyRforkOS(n) failed: %v", err)
+		}
+	case "s":
+		if err := applyRforkOS(rforkFlags{noteNew: true}); err != nil {
+			t.Fatalf("applyRforkOS(s) failed: %v", err)
+		}
+	default:
+		t.Fatalf("unknown rfork helper flag %q", os.Getenv("RFORK_OS_HELPER"))
+	}
 }
 
 func TestRforkECompatibility(t *testing.T) {

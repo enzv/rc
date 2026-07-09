@@ -1,10 +1,11 @@
-//go:build aix || darwin || dragonfly || freebsd || illumos || netbsd || openbsd || solaris
+//go:build aix || android || darwin || dragonfly || freebsd || illumos || netbsd || openbsd || solaris
 
 package main
 
 import (
 	"fmt"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func sysValidateRfork(flags rforkFlags) error {
@@ -17,7 +18,7 @@ func sysValidateRfork(flags rforkFlags) error {
 func sysApplyRfork(flags rforkFlags) error {
 
 	if flags.noteNew {
-		if err := syscall.Setpgid(0, 0); err != nil {
+		if err := unix.Setpgid(0, 0); err != nil {
 			return fmt.Errorf("setpgid: %w", err)
 		}
 	}

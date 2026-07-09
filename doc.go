@@ -88,11 +88,13 @@
 //	    Close the runner-tracked extra file descriptors.
 //
 //	s   RFNOTEG
-//	    On POSIX platforms, place the child in a new process group with
+//	    On POSIX-like platforms, place the child in a new process group with
 //	    setpgid(0, 0).
 //
 //	n   RFNAMEG
-//	    On Linux, unshare the mount namespace with CLONE_NEWNS.
+//	    On Linux, lock the current OS thread and unshare the mount namespace
+//	    with CLONE_NEWNS.
+//	    After a successful rfork n, the runner stays pinned to that OS thread.
 //
 //	N   RFCNAMEG
 //	    Unsupported.
@@ -138,6 +140,8 @@
 // The important part is not pretending that Unix can represent every Plan 9
 // process-group or namespace operation exactly. rc keeps the behavior
 // explicit: if the OS can do it, rc applies it; if not, rc says so plainly.
+// rfork ns is applied in order, so a later syscall can still fail after an
+// earlier one has already taken effect.
 //
 // # Startup Configuration
 //
