@@ -105,6 +105,7 @@ var refFixtures = []refFixture{
 	{name: "rfork_compat.rc"},
 	{name: "rfork_default.rc"},
 	{name: "rfork_flags.rc"},
+	{name: "reference_parity.rc"},
 	{name: "shift_basic.rc", args: []string{"one", "two", "three", "four"}},
 	{name: "wait_pid_and_all.rc"},
 	{name: "whatis_var_fn_builtin_external.rc"},

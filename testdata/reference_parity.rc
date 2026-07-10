@@ -1,0 +1,600 @@
+INPUT=(alpha beta gamma delta epsilon zeta eta theta iota kappa slash/name ./dot ../dot a1 b2 g3 z9)
+OUT=()
+ifs=' 	
+'
+empty=()
+name=INPUT
+K=('for' 'in' 'while' 'if' 'not' 'switch' 'fn' '~' '!' '@')
+Q=('can''t' 'q''q' 'semi;colon' 'brace{}' 'paren()' 'hash#literal' 'dollar$literal')
+M=((m1 m2) (m3 (m4 m5)) m6)
+rfork e
+flag x -
+
+fn put { OUT=($OUT $*) }
+fn sink { OUT=($OUT SINK:$#*) }
+fn sigexit { echo >/dev/null }
+
+fn fold {
+	tag=$1
+	shift
+	L=$*
+	while(! ~ $#L 0) {
+		h=$L(1)
+		t=$L(2-)
+		switch($h){
+		case alpha a*
+			put $tag^:A:$h:$#L
+		case beta b*
+			put $tag^:B:$h:$#L
+		case gamma g*
+			put $tag^:G:$h:$#L
+		case slash/*
+			put $tag^:SLASH:$h:$#L
+		case ./*
+			put $tag^:DOT1:$h:$#L
+		case ../*
+			put $tag^:DOT2:$h:$#L
+		case *
+			if(~ $#h 1) put $tag^:X:$h:$#L
+			if not put $tag^:BAD
+		}
+		L=$t
+	}
+}
+
+fn chew {
+	put CHEW0:$#*:$1:$2:$3
+	shift
+	put CHEW1:$#*:$1:$2
+	shift 2
+	put CHEW2:$#*:$1:$2
+}
+
+fn logic {
+	if(~ alpha a*) put IF:yes
+	if not put IF:no
+
+	if(~ beta a*) put IF2:no
+	if not put IFNOT:yes
+
+	if(! ~ beta a*) put BANG:yes
+	if not put BANG:no
+
+	~ gamma g* && put AND:yes || put AND:no
+	~ gamma z* && put AND2:no || put OR:yes
+
+	if(~ slash/name */name) {
+		if(! ~ ./dot ../*) {
+			put NESTIF:yes
+		}
+		if not put NESTIF:no
+	}
+	if not put NESTIF:outer-no
+}
+
+fn sw {
+	for(s in $*) {
+		switch($s){
+		case alpha a*
+			put SW:A:$s
+		case beta b*
+			{
+				put SW:B:$s
+				switch(x){
+				case y
+					put SW:NEST:no
+				case x
+					put SW:NEST:yes
+				}
+			}
+		case gamma g*
+			put SW:G:$s
+		case ./dot
+			put SW:DOT1:$s
+		case ../dot
+			put SW:DOT2:$s
+		case */*
+			put SW:SLASH:$s
+		case *
+			put SW:X:$s
+		}
+	}
+}
+
+fn vars {
+	put CNT:empty:$#empty
+	put CNT:input:$#INPUT
+	put CNT:M:$#M
+	put JOIN:input:$"INPUT
+	put JOIN:K:$"K
+	put JOIN:Q:$"Q
+	put SUB:1:$INPUT(1)
+	put SUB:2-5:$INPUT(2-5)
+	put SUB:8-:$INPUT(8-)
+	put IND:$$name
+	put FREE:pre$INPUT(1)^mid'post'
+	put FREE2:$INPUT(2)^/$INPUT(3)^.c
+	put QUOTE:$Q
+	put FLAT:$M
+}
+
+fn deep {
+	a=$1
+	b=$2
+	c=$3
+	d=$4
+	{
+		put DEEP:enter:$a:$b:$c:$d
+		SS=`{
+			@{
+				echo sub shell $a $b $c $d
+			}
+		}
+		put DEEP:sub:$"SS
+		if(~ $a a*) {
+			if(! ~ $b z*) {
+				switch($c){
+				case g*
+					put DEEP:case:$a^/$b^/$c^/$d
+				case *
+					put DEEP:badcase
+				}
+			}
+			if not put DEEP:badnot
+		}
+		if not put DEEP:badouter
+	}
+}
+
+fn ev {
+	CODE='put EV:one:$INPUT(1); X=(x y z); put EV:two:$X(1)^$X(2)^$X(3); for(e in red blue){switch($e){case red; put EV:red; case blue; put EV:blue; case *; put EV:bad}}; if(~ eval eval){put EV:if}'
+	eval $CODE
+}
+
+
+
+fn redirs {
+	sink R0 >/dev/null
+	sink R1 >[2=1]
+	sink R2 >[2=]
+	sink R3 <>/dev/null
+	sink R4 <>[3]/dev/null
+	{ sink R5; sink R6 >/dev/null; sink R7 >[2=1] } >/dev/null >[2=1]
+	put REDIR:done
+}
+
+fn pipes {
+	P1=`{
+		{ echo left-hidden } | echo pipe-right
+	}
+	put PIPE1:$"P1
+
+	P2=`{
+		{ echo fd2-hidden >[1=2] } |[2] echo pipe-fd-right
+	}
+	put PIPE2:$"P2
+
+	P3=`{
+		{ echo a; echo b; echo c } | echo pipe-last
+	}
+	put PIPE3:$"P3
+}
+
+fn psub {
+	sink PS0 <{echo psub-left}
+	sink PS1 >{echo psub-right >/dev/null}
+	sink PS2 <{echo psub-a} >{echo psub-b >/dev/null}
+	put PS:done
+}
+
+fn bg {
+	{ echo background-hidden >/dev/null } &
+	wait
+	put BG:waited
+}
+
+fn dotmake {
+		echo 'put DOT:start:$#*; D=(d o t); put DOT:list:$D(1)^$D(2)^$D(3)^:^$#D; fn dotfn { put DOTFN:$#*:$1:$2 }; dotfn inner call; put DOT:end' >.rc_reference_dot
+		. ./.rc_reference_dot arg one two
+		rm -f .rc_reference_dot
+}
+
+fn meta {
+	whatis put >/dev/null
+	builtin echo >/dev/null
+	cd .
+	put META:ok
+}
+
+fn grid {
+	for(i in 1 2 3) {
+		for(j in a b c) {
+			if(~ $i 2) {
+				switch($j){
+				case a
+					put GRID:$i:$j:A
+				case b
+					put GRID:$i:$j:B
+				case c
+					put GRID:$i:$j:C
+				}
+			}
+			if not {
+				if(~ $j b) put GRID:$i:$j:XB
+				if not put GRID:$i:$j:X
+			}
+		}
+	}
+}
+
+fn maze {
+	tag=$1
+	A=(alpha beta gamma)
+	B=(one two three)
+
+	put MAZE:begin:$tag
+	if(~ $A(1) a*) {
+		switch($A(2)^:$B(1)){
+		case beta:one
+			put MAZE:switch:hit:$tag
+		case *
+			put MAZE:switch:miss:$tag
+		}
+	}
+	if(~ $A(3) z*) put MAZE:if:bad:$tag
+	if not put MAZE:if:not:$tag
+
+	CODE='put MAZE:eval:one; if(~ alpha a*) put MAZE:eval:two; for(item in red blue){switch($item){case red put MAZE:eval:red; case blue put MAZE:eval:blue; case * put MAZE:eval:bad}}'
+	eval $CODE
+
+	echo 'put MAZE:dot:one; if(~ alpha a*) put MAZE:dot:two; switch(beta){case beta put MAZE:dot:three; case * put MAZE:dot:bad}' >.rc_reference_maze
+	. ./.rc_reference_maze
+	rm -f .rc_reference_maze
+}
+
+tmpa=outer tmpb=(outer list) put ASSIGN0:$tmpa:$"tmpb
+TMP=`{
+	tmpa=inner tmpb=(in ner) echo ASSIGN1:$tmpa:$"tmpb
+}
+put $TMP
+
+{
+	put BEGIN:$#INPUT
+
+	vars
+	logic
+	sw $INPUT
+	fold F $INPUT
+	chew c1 c2 c3 c4 c5 c6
+	deep alpha beta gamma delta
+	ev
+
+	redirs
+	pipes
+	psub
+	bg
+	dotmake
+	meta
+	grid
+	maze parity
+
+	{
+		put BRACE:1
+		{ put BRACE:2; { put BRACE:3 } }
+		@{
+			echo subshell-visible-stable >/dev/null
+		}
+		put BRACE:4
+	}
+
+	for(round in r1 r2) {
+		for(item in $INPUT(1-4)) {
+			switch($round^:$item){
+			case r1:alpha
+				put ROUND:$round:$item:A
+			case r1:*
+				put ROUND:$round:$item:X1
+			case r2:beta
+				put ROUND:$round:$item:B
+			case *
+				if(~ $item g*) put ROUND:$round:$item:G
+				if not put ROUND:$round:$item:X2
+			}
+		}
+	}
+
+	put ENDINNER:$#OUT
+} >/dev/null >[2=1]
+
+fn caseMatrix {
+	tag=$1
+	a=$2
+	b=$3
+	c=$4
+
+	put EDGE:enter:$tag:$a:$b:$c
+	if(~ $a a*) {
+		switch($b){
+		case one
+			put EDGE:case:one:$tag
+			{
+				switch($c){
+				case two
+					put EDGE:nested:two:$tag
+				case *
+					put EDGE:nested:miss:$tag
+				}
+			}
+		case *
+			put EDGE:case:other:$tag
+		}
+	}
+	if not put EDGE:if:not:$tag
+}
+
+fn nestedBlocks {
+	@{
+		{
+			put EDGE:deep
+		}
+	}
+}
+
+fn conditionalStack {
+	a=$1
+	b=$2
+	c=$3
+
+	if(~ $a a*) {
+		if(~ $b b*) {
+			switch($c){
+			case gamma
+				put EDGE:cascade:hit:$a:$b:$c
+			case *
+				put EDGE:cascade:miss:$a:$b:$c
+			}
+		}
+		if not put EDGE:cascade:not:$a
+	}
+	if not put EDGE:cascade:outer:$a
+}
+
+fn fdRedirectionMatrix {
+	sink R0 >[2=1]
+	sink R1 >[2=]
+	sink R2 <>/dev/null
+	sink R3 <>[3]/dev/null
+	{ sink R4; sink R5 >/dev/null; sink R6 >[2=1] } >/dev/null >[2=1]
+	put EDGE:redir:done
+}
+
+fn pipeVariants {
+	P1=`{
+		{ echo left-hidden } | echo pipe-right
+	}
+	put EDGE:pipe1:$"P1
+
+	P2=`{
+		{ echo fd2-hidden >[1=2] } |[2] echo pipe-fd-right
+	}
+	put EDGE:pipe2:$"P2
+
+	P3=`{
+		{ echo a; echo b; echo c } | echo pipe-last
+	}
+	put EDGE:pipe3:$"P3
+}
+
+fn quotingMatrix {
+	put EDGE:quote:$"K
+	put EDGE:quote2:$"Q
+	put EDGE:quote3:$"M
+	echo pre$INPUT(1)^mid'post' $K $Q
+	echo $M $INPUT(1-3)
+	echo alpha \
+	beta
+}
+
+fn evalDispatch {
+	CODE='put EDGE:eval:one; if(~ alpha a*) put EDGE:eval:two; switch(beta){case beta put EDGE:eval:three; case * put EDGE:eval:miss}; for(x in red blue){switch($x){case red put EDGE:eval:red; case blue put EDGE:eval:blue; case * put EDGE:eval:bad}}'
+	eval $CODE
+}
+
+{
+	put EDGE:start
+	caseMatrix hit alpha one two
+	caseMatrix miss beta three four
+	nestedBlocks
+	conditionalStack alpha beta gamma
+	conditionalStack alpha beta delta
+	conditionalStack zeta beta gamma
+	fdRedirectionMatrix
+	pipeVariants
+	quotingMatrix
+	evalDispatch
+	put EDGE:end
+} >/dev/null >[2=1]
+
+fn emit { put EMIT:$* }
+
+fn switchMatrix {
+	tag=$1
+	a=$2
+	b=$3
+	c=$4
+	d=$5
+
+	put LATTICE:enter:$tag:$a:$b:$c:$d
+	if(~ $a a*) {
+		switch($b){
+		case one
+			put LATTICE:case:one:$tag
+			if(~ $c c*) {
+				switch($d){
+				case delta
+					put LATTICE:deep:delta:$tag
+				case *
+					put LATTICE:deep:other:$tag
+				}
+			}
+		case two
+			put LATTICE:case:two:$tag
+		case *
+			put LATTICE:case:other:$tag
+		}
+	}
+	if not put LATTICE:if:not:$tag
+}
+
+fn iterationMatrix {
+	for(round in r1 r2 r3) {
+		for(item in alpha beta gamma delta) {
+			switch($round^:$item){
+			case r1:alpha
+				put FANOUT:$round:$item:A
+			case r2:beta
+				put FANOUT:$round:$item:B
+			case r3:gamma
+				put FANOUT:$round:$item:G
+			case *
+				if(~ $item d*) put FANOUT:$round:$item:D
+				if not put FANOUT:$round:$item:X
+			}
+		}
+	}
+}
+
+fn functionLifecycle {
+	fn redefinedTemp { put TEMP:one }
+	redefinedTemp
+	fn redefinedTemp
+	fn redefinedTemp { put TEMP:two }
+	redefinedTemp
+}
+
+fn fdDupCloseMatrix {
+	sink R0 >/dev/null
+	sink R1 >[2=1]
+	sink R2 >[2=]
+	sink R3 <>/dev/null
+	sink R4 <>[3]/dev/null
+	{ sink R5; sink R6 >/dev/null; sink R7 >[2=1] } >/dev/null >[2=1]
+	put ROUTES:done
+}
+
+fn sourceReload {
+		echo 'put DOT:one; if(~ alpha a*) put DOT:two; switch(beta){case beta put DOT:three; case * put DOT:bad}' >.rc_combinatorial_dot
+		. ./.rc_combinatorial_dot
+		rm -f .rc_combinatorial_dot
+	}
+
+fn evalReparseMatrix {
+	CODE='put EVAL:one; if(~ alpha a*) put EVAL:two; switch(beta){case beta put EVAL:three; case * put EVAL:miss}; for(x in red blue green){switch($x){case red put EVAL:red; case blue put EVAL:blue; case green put EVAL:green; case * put EVAL:bad}}'
+	eval $CODE
+}
+
+{
+	put START
+	switchMatrix combo alpha one c1 delta
+	switchMatrix miss beta three c2 epsilon
+	switchMatrix hit alpha one c3 delta
+	nestedBlocks
+	iterationMatrix
+	functionLifecycle
+	fdDupCloseMatrix
+	pipeVariants
+	quotingMatrix
+	sourceReload
+	evalReparseMatrix
+	meta
+	emit done
+	put END
+} >/dev/null >[2=1]
+
+fn layeredCases {
+	prefix=$1
+	outer=$2
+	inner=$3
+	leaf=$4
+
+	for(layer in q1 q2 q3) {
+		switch($layer^:$prefix){
+		case q1:alpha
+			{
+				fn layerStep {
+					CODE='if(~ alpha a*) { switch(beta){case beta put STEP:beta; case * put STEP:other} }; if not put STEP:not'
+					eval $CODE
+				}
+				layerStep
+			}
+		case q2:beta
+			@{
+				put LAYER:$layer:$outer:$inner:$leaf
+			}
+		case *
+			if(~ $inner i*) {
+				switch($leaf){
+				case leaf
+					put LAYER:leaf
+				case *
+					put LAYER:miss
+				}
+			}
+		}
+	}
+}
+
+layeredCases alpha outer inner leaf
+layeredCases beta outer inner miss
+layeredCases gamma outer inner leaf
+
+fn evalAndSource {
+	CODE='put REPARSE:eval:one; if(~ alpha a*) put REPARSE:eval:two; for(x in one two){switch($x){case one put REPARSE:eval:three; case * put REPARSE:eval:bad}}'
+	eval $CODE
+
+	echo 'put REPARSE:dot:one; fn sourceProbe { put REPARSE:dot:two:$* }; sourceProbe x y; if(~ alpha a*) put REPARSE:dot:three' >.rc_reference_reparse
+	. ./.rc_reference_reparse
+	rm -f .rc_reference_reparse
+}
+
+fn nestedScopes {
+	x=alpha
+	y=beta
+	z=gamma
+
+	{
+		if(~ $x a*) {
+			{
+				switch($y^:$z){
+				case beta:gamma
+					put TOPO:hit
+				case *
+					put TOPO:miss
+				}
+			}
+		}
+		if not put TOPO:outer
+	}
+}
+
+fn pairwiseSwitchMatrix {
+	for(x in alpha beta gamma) {
+		for(y in one two) {
+			switch($x^:$y){
+			case alpha:one
+				put LATTICE2:A1
+			case beta:two
+				put LATTICE2:B2
+			case *
+				if(~ $y t*) put LATTICE2:T
+				if not put LATTICE2:X
+			}
+		}
+	}
+}
+
+evalAndSource
+nestedScopes
+pairwiseSwitchMatrix
+
+echo OUTPUT:$"OUT
