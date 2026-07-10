@@ -64,6 +64,19 @@ func TestLexCases(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "glob word",
+			src:  "echo a*b",
+			check: func(t *testing.T, tokens []LexToken) {
+				t.Helper()
+				if len(tokens) < 3 {
+					t.Fatalf("expected at least 3 tokens, got %d", len(tokens))
+				}
+				if tokens[1].Text != "a*b" || !tokens[1].Glob {
+					t.Fatalf("glob token mismatch: text=%q glob=%v", tokens[1].Text, tokens[1].Glob)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -75,6 +88,24 @@ func TestLexCases(t *testing.T) {
 			}
 			tc.check(t, tokens)
 		})
+	}
+}
+
+func TestLexHeredocInFunction(t *testing.T) {
+	src := "fn f {\n    cat <<EOF\nheredoc in fn\nEOF\n}\nf\n"
+	tokens, err := Lex(src)
+	if err != nil {
+		t.Fatalf("Lex returned error: %v", err)
+	}
+
+	var hereDocs int
+	for _, tok := range tokens {
+		if tok.Kind == tokenRedir && tok.RType == redirHere {
+			hereDocs++
+		}
+	}
+	if hereDocs != 1 {
+		t.Fatalf("here-doc redirection count = %d, want 1", hereDocs)
 	}
 }
 
@@ -98,23 +129,5 @@ func TestTokenName(t *testing.T) {
 				t.Fatalf("tokenName(%d) = %q, want %q", tc.kind, got, tc.want)
 			}
 		})
-	}
-}
-
-func BenchmarkLex(b *testing.B) {
-	src := `
-fn build {
-	echo building...
-	cc -O2 -o $1 $2.c
-	if (~ $status 0) {
-		echo success
-	}
-}
-build prog main
-`
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = Lex(src)
 	}
 }

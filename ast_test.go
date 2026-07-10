@@ -1,47 +1,62 @@
 package main
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestTreeHelpers(t *testing.T) {
-	cases := []struct {
-		name  string
-		check func(t *testing.T)
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
 	}{
 		{
 			name: "format tree word and concat",
-			check: func(t *testing.T) {
+			run: func(t *testing.T) {
 				t.Helper()
-				left := Token("a", tokenWord)
-				right := Token("b", tokenWord)
-				tree := NewBinaryNode('^', left, right)
-				if got := FormatTree(tree); got != "a^b" {
+				prog := &Program{
+					Tokens: []LexToken{
+						{Text: "a"},
+						{Text: "b"},
+					},
+					Nodes: []Node{
+						{Type: tokenWord, Tok: 0},
+						{Type: tokenWord, Tok: 1},
+						{Type: '^', Child: [3]int{0, 1, -1}},
+					},
+					Root: 2,
+				}
+				if got := FormatTree(prog, prog.Root); got != "a^b" {
 					t.Fatalf("FormatTree(concat) = %q, want %q", got, "a^b")
 				}
 			},
 		},
 		{
-			name: "simple mung lifts redirection",
-			check: func(t *testing.T) {
+			name: "redirection tree formatting",
+			run: func(t *testing.T) {
 				t.Helper()
-				cmd := NewBinaryNode(tokenArgList, Token("echo", tokenWord), NewBinaryNode(tokenArgList, Token("ok", tokenWord), nil))
-				redir := &Tree{Type: tokenRedir, RType: redirWrite, FD0: 1, Child: [3]*Tree{Token("out", tokenWord), nil, nil}}
-				root := SimpleMung(NewBinaryNode(tokenArgList, cmd, redir))
-				if root.Type != tokenRedir {
-					t.Fatalf("SimpleMung root type = %s, want REDIR", tokenName(root.Type))
+				prog := &Program{
+					Tokens: []LexToken{
+						{Text: "out"},
+						{Text: "echo"},
+						{Text: "ok"},
+					},
+					Nodes: []Node{
+						{Type: tokenWord, Tok: 0},
+						{Type: tokenWord, Tok: 1},
+						{Type: tokenWord, Tok: 2},
+						{Type: tokenArgList, Child: [3]int{1, 2, -1}},
+						{Type: tokenSimple, Child: [3]int{3, -1, -1}},
+						{Type: tokenRedir, RType: redirWrite, FD0: 1, Child: [3]int{0, 4, -1}},
+					},
+					Root: 5,
 				}
-				if got := FormatTree(root); got == "" {
-					t.Fatal("FormatTree returned empty string for lifted redirection")
+				if got := FormatTree(prog, prog.Root); got == "" {
+					t.Fatal("FormatTree returned empty string for redirection tree")
 				}
 			},
 		},
 	}
 
-	for _, tc := range cases {
+	for _, tc := range tests {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			tc.check(t)
-		})
+		t.Run(tc.name, tc.run)
 	}
 }

@@ -180,16 +180,16 @@ func TestLookupVar(t *testing.T) {
 func TestConcatWords(t *testing.T) {
 	cases := []struct {
 		name    string
-		left    []string
-		right   []string
-		want    []string
+		left    []wordValue
+		right   []wordValue
+		want    []wordValue
 		wantErr string
 	}{
-		{name: "same length", left: []string{"a", "b"}, right: []string{"1", "2"}, want: []string{"a1", "b2"}},
-		{name: "left scalar", left: []string{"a"}, right: []string{"1", "2"}, want: []string{"a1", "a2"}},
-		{name: "right scalar", left: []string{"a", "b"}, right: []string{"1"}, want: []string{"a1", "b1"}},
-		{name: "null list", left: nil, right: []string{"1"}, wantErr: "null list in concatenation"},
-		{name: "mismatched lengths", left: []string{"a", "b"}, right: []string{"1", "2", "3"}, wantErr: "mismatched list lengths in concatenation"},
+		{name: "same length", left: wv("a", "b"), right: wv("1", "2"), want: wv("a1", "b2")},
+		{name: "left scalar", left: wv("a"), right: wv("1", "2"), want: wv("a1", "a2")},
+		{name: "right scalar", left: wv("a", "b"), right: wv("1"), want: wv("a1", "b1")},
+		{name: "null list", left: nil, right: wv("1"), wantErr: "null list in concatenation"},
+		{name: "mismatched lengths", left: wv("a", "b"), right: wv("1", "2", "3"), wantErr: "mismatched list lengths in concatenation"},
 	}
 
 	for _, tc := range cases {
@@ -210,6 +210,14 @@ func TestConcatWords(t *testing.T) {
 			}
 		})
 	}
+}
+
+func wv(items ...string) []wordValue {
+	out := make([]wordValue, len(items))
+	for i, item := range items {
+		out[i] = wordValue{text: item}
+	}
+	return out
 }
 
 func BenchmarkRunFor(b *testing.B) {

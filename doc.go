@@ -190,7 +190,7 @@
 // natively to over 30 UNIX architectures right out of the box. You drop the 2MB
 // binary on a server, and it works.
 //
-// # Direct AST Tree-Walking Evaluator
+// # Direct AST Evaluator
 //
 // The original C Plan 9 rc shell is a bytecode interpreter. It compiles the
 // parsed syntax tree into a flat array of function pointers and opcodes
@@ -198,10 +198,10 @@
 //
 // This port abandons the bytecode VM entirely.
 //
-// Instead, it implements a direct, recursive AST tree-walking evaluator.
-// When a command is parsed, the execution engine walks the '*Tree' nodes
+// Instead, it implements a direct, recursive AST evaluator.
+// When a command is parsed, the execution engine walks the AST nodes
 // recursively. Because Go's function call overhead is negligible and stack
-// management is dynamic, the tree-walker approach is extremely fast, avoids
+// management is dynamic, the evaluator approach is extremely fast, avoids
 // the immense complexity of compiling shell opcodes, and makes the execution
 // flow trivial to debug.
 //

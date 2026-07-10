@@ -18,8 +18,8 @@ func newInteractiveEnv(t *testing.T) *shellEnv {
 	if err != nil {
 		t.Fatalf("newShellEnv: %v", err)
 	}
-	env.vars["rcname"] = []string{defaultCommandName}
-	env.vars["argv0"] = []string{defaultCommandName}
+	env.set("rcname", []string{defaultCommandName})
+	env.set("argv0", []string{defaultCommandName})
 	return env
 }
 

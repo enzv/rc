@@ -52,6 +52,7 @@ type RunResult struct {
 
 // runner is the rc interpreter state for a single execution context.
 type runner struct {
+	prog       *Program
 	env        *shellEnv
 	stdin      io.Reader
 	stdout     io.Writer
@@ -146,6 +147,7 @@ func RunProgram(prog *Program, opts RunOptions) (RunResult, error) {
 		ctx = context.Background()
 	}
 	r := &runner{
+		prog:   prog,
 		env:    env,
 		stdout: stdout,
 		stderr: stderr,
@@ -194,7 +196,8 @@ func RunProgram(prog *Program, opts RunOptions) (RunResult, error) {
 }
 
 // exec dispatches AST node execution.
-func (r *runner) exec(node *Tree) error {
+func (r *runner) exec(id int) error {
+	node := r.prog.Node(id)
 	if node == nil {
 		r.env.setStatus("")
 		return nil
@@ -212,45 +215,50 @@ func (r *runner) exec(node *Tree) error {
 		}
 		return r.exec(node.Child[1])
 	case '&':
-		return r.execAsync(node)
+		return r.execAsync(id)
 	case '=':
-		return r.execAssignment(node)
+		return r.execAssignment(id)
 	case tokenSimple:
-		return r.execSimple(node)
+		return r.execSimple(id)
+	case tokenWord:
+		return r.execBareWord(id)
+	case tokenWords:
+		return r.execWordList(id)
 	case tokenTwiddle:
-		return r.execTwiddle(node)
+		return r.execTwiddle(id)
 	case tokenRedir, tokenDup:
-		return r.execRedir(node)
+		return r.execRedir(id)
 	case tokenPipe:
-		return r.execPipe(node)
+		return r.execPipe(id)
 	case tokenBrace, tokenPCmd:
 		return r.exec(node.Child[0])
 	case tokenIf:
-		return r.execIf(node)
+		return r.execIf(id)
 	case tokenNot:
-		return r.execIfNot(node)
+		return r.execIfNot(id)
 	case tokenFor:
-		return r.execFor(node)
+		return r.execFor(id)
 	case tokenWhile:
-		return r.execWhile(node)
+		return r.execWhile(id)
 	case tokenSwitch:
-		return r.execSwitch(node)
+		return r.execSwitch(id)
 	case tokenBang:
-		return r.execBang(node)
+		return r.execBang(id)
 	case tokenSubshell:
-		return r.execSubshell(node)
+		return r.execSubshell(id)
 	case tokenAndAnd:
-		return r.execAndAnd(node)
+		return r.execAndAnd(id)
 	case tokenOrOr:
-		return r.execOrOr(node)
+		return r.execOrOr(id)
 	case tokenFn:
-		return r.execFnDef(node)
+		return r.execFnDef(id)
 	default:
 		return fmt.Errorf("unsupported runtime node %s", tokenName(node.Type))
 	}
 }
 
-func (r *runner) execTwiddle(node *Tree) error {
+func (r *runner) execTwiddle(id int) error {
+	node := r.prog.Node(id)
 	subjects, err := r.expandWord(node.Child[0])
 	if err != nil {
 		return err
@@ -259,13 +267,11 @@ func (r *runner) execTwiddle(node *Tree) error {
 	if err != nil {
 		return err
 	}
-	args := []string{"~"}
-	args = append(args, subjects...)
-	args = append(args, patterns...)
-	return r.execMatch(args[1:])
+	return r.execMatch(append(wordTexts(subjects), wordTexts(patterns)...))
 }
 
-func (r *runner) execAssignment(node *Tree) error {
+func (r *runner) execAssignment(id int) error {
+	node := r.prog.Node(id)
 	r.env.ifstate = 0
 	name, err := r.expandName(node.Child[0])
 	if err != nil {
@@ -275,26 +281,28 @@ func (r *runner) execAssignment(node *Tree) error {
 	if err != nil {
 		return err
 	}
-	if node.Child[2] == nil {
-		r.env.set(name, values)
+	if node.Child[2] < 0 {
+		r.env.setWords(name, values)
 		r.env.setStatus("")
 		return nil
 	}
-	saved, had := r.env.vars[name]
-	r.env.set(name, values)
+	saved := r.env.lookupWords(name)
+	_, had := r.env.vars[name]
+	r.env.setWords(name, values)
 	err = r.exec(node.Child[2])
 	if had {
-		r.env.vars[name] = saved
+		r.env.setWords(name, saved)
 	} else {
 		r.env.unset(name)
 	}
 	return err
 }
 
-func (r *runner) execSimple(node *Tree) error {
+func (r *runner) execSimple(id int) error {
+	node := r.prog.Node(id)
 	r.env.ifstate = 0
-	parts := flattenArgList(node.Child[0])
-	var args []string
+	parts := flattenArgList(r.prog, node.Child[0])
+	var args []wordValue
 	for _, part := range parts {
 		values, err := r.expandWord(part)
 		if err != nil {
@@ -306,13 +314,13 @@ func (r *runner) execSimple(node *Tree) error {
 		r.env.setStatus("")
 		return nil
 	}
-	args, err := expandGlobWords(args, r.env.cwd)
+	argTexts, err := expandGlobWords(args, r.env.cwd)
 	if err != nil {
 		return err
 	}
-	err = r.dispatch(args)
+	err = r.dispatch(argTexts)
 	if errors.Is(err, syscall.EBADF) {
-		_, _ = fmt.Fprintf(r.stderr, "%s: write error: Bad file descriptor\n", args[0])
+		_, _ = fmt.Fprintf(r.stderr, "%s: write error: Bad file descriptor\n", argTexts[0])
 		r.env.setStatus("1")
 		err = nil
 	}
@@ -326,16 +334,66 @@ func (r *runner) execSimple(node *Tree) error {
 	return err
 }
 
-func flattenArgList(node *Tree) []*Tree {
+func (r *runner) execBareWord(id int) error {
+	r.env.ifstate = 0
+	args, err := r.expandWord(id)
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		r.env.setStatus("")
+		return nil
+	}
+	argTexts, err := expandGlobWords(args, r.env.cwd)
+	if err != nil {
+		return err
+	}
+	err = r.dispatch(argTexts)
+	if errors.Is(err, syscall.EBADF) {
+		_, _ = fmt.Fprintf(r.stderr, "%s: write error: Bad file descriptor\n", argTexts[0])
+		r.env.setStatus("1")
+		return nil
+	}
+	return err
+}
+
+func (r *runner) execWordList(id int) error {
+	r.env.ifstate = 0
+	args, err := r.expandWords(id)
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		r.env.setStatus("")
+		return nil
+	}
+	argTexts, err := expandGlobWords(args, r.env.cwd)
+	if err != nil {
+		return err
+	}
+	err = r.dispatch(argTexts)
+	if errors.Is(err, syscall.EBADF) {
+		_, _ = fmt.Fprintf(r.stderr, "%s: write error: Bad file descriptor\n", argTexts[0])
+		r.env.setStatus("1")
+		return nil
+	}
+	return err
+}
+
+func flattenArgList(prog *Program, id int) []int {
+	if prog == nil || id < 0 {
+		return nil
+	}
+	node := prog.Node(id)
 	if node == nil {
 		return nil
 	}
 	if node.Type != tokenArgList {
-		return []*Tree{node}
+		return []int{id}
 	}
-	var out []*Tree
-	out = append(out, flattenArgList(node.Child[0])...)
-	if node.Child[1] != nil {
+	var out []int
+	out = append(out, flattenArgList(prog, node.Child[0])...)
+	if node.Child[1] >= 0 {
 		out = append(out, node.Child[1])
 	}
 	return out
@@ -429,6 +487,7 @@ func (r *runner) child(env *shellEnv) *runner {
 		writers[fd] = writer
 	}
 	return &runner{
+		prog:      r.prog,
 		env:       env,
 		stdin:     r.stdin,
 		stdout:    r.stdout,
@@ -441,7 +500,8 @@ func (r *runner) child(env *shellEnv) *runner {
 }
 
 // execAsync implements: command &
-func (r *runner) execAsync(node *Tree) error {
+func (r *runner) execAsync(id int) error {
+	node := r.prog.Node(id)
 	sub := r.child(r.env.clone())
 	devNull, err := os.Open(os.DevNull)
 	if err != nil {
@@ -476,7 +536,8 @@ func (r *runner) execAsync(node *Tree) error {
 
 // execIf implements: if (list) command
 // Sets env.ifstate to track whether the condition was false.
-func (r *runner) execIf(node *Tree) error {
+func (r *runner) execIf(id int) error {
+	node := r.prog.Node(id)
 	// Execute condition (Child[0] is a tokenPCmd wrapping the condition list).
 	if err := r.exec(node.Child[0]); err != nil {
 		return err
@@ -496,7 +557,8 @@ func (r *runner) execIf(node *Tree) error {
 
 // execIfNot implements: if not command
 // Only executes body if the preceding if-condition was false (env.ifstate == 1).
-func (r *runner) execIfNot(node *Tree) error {
+func (r *runner) execIfNot(id int) error {
+	node := r.prog.Node(id)
 	state := r.env.ifstate
 	r.env.ifstate = 0
 	if state == 1 {
@@ -511,19 +573,20 @@ func (r *runner) execIfNot(node *Tree) error {
 }
 
 // execFor implements: for (name in args) command and for (name) command
-func (r *runner) execFor(node *Tree) error {
+func (r *runner) execFor(id int) error {
+	node := r.prog.Node(id)
 	nameStr, err := r.expandName(node.Child[0])
 	if err != nil {
 		return err
 	}
 	var items []string
-	if node.Child[1] != nil {
+	if node.Child[1] >= 0 {
 		// Explicit word list: for (x in a b c)
-		items, err = r.expandWords(node.Child[1])
+		wordItems, err := r.expandWords(node.Child[1])
 		if err != nil {
 			return err
 		}
-		items, err = expandGlobWords(items, r.env.cwd)
+		items, err = expandGlobWords(wordItems, r.env.cwd)
 		if err != nil {
 			return err
 		}
@@ -541,7 +604,8 @@ func (r *runner) execFor(node *Tree) error {
 }
 
 // execWhile implements: while (list) command
-func (r *runner) execWhile(node *Tree) error {
+func (r *runner) execWhile(id int) error {
+	node := r.prog.Node(id)
 	for {
 		if err := r.exec(node.Child[0]); err != nil {
 			return err
@@ -557,7 +621,8 @@ func (r *runner) execWhile(node *Tree) error {
 
 // execSwitch implements: switch (arg) { list }
 // Searches for top-level 'case' simple commands and matches patterns.
-func (r *runner) execSwitch(node *Tree) error {
+func (r *runner) execSwitch(id int) error {
+	node := r.prog.Node(id)
 	argVals, err := r.expandWord(node.Child[0])
 	if err != nil {
 		return err
@@ -565,29 +630,29 @@ func (r *runner) execSwitch(node *Tree) error {
 	if len(argVals) == 0 {
 		return nil
 	}
-	subject := argVals[0]
+	subject := argVals[0].text
 
 	// The body is a tokenBrace wrapping a semicolon-list.
 	body := node.Child[1]
-	if body == nil {
+	if body < 0 {
 		return nil
 	}
-	if body.Type == tokenBrace {
-		body = body.Child[0]
+	if r.prog.Node(body).Type == tokenBrace {
+		body = r.prog.Node(body).Child[0]
 	}
 
-	stmts := flattenSemicolons(body)
+	stmts := flattenSemicolons(r.prog, body)
 
 	// Find case blocks: a 'case' command starts a block that runs
 	// until the next case command.
 	type caseBlock struct {
 		patterns []string
-		stmts    []*Tree
+		stmts    []int
 	}
 	var cases []caseBlock
 	var current *caseBlock
 	for _, stmt := range stmts {
-		if isCase(stmt) {
+		if isCase(r.prog, stmt) {
 			pats, perr := r.extractCasePatterns(stmt)
 			if perr != nil {
 				return perr
@@ -618,37 +683,50 @@ func (r *runner) execSwitch(node *Tree) error {
 }
 
 // flattenSemicolons collects all statements from a semicolon-tree into a slice.
-func flattenSemicolons(node *Tree) []*Tree {
+func flattenSemicolons(prog *Program, id int) []int {
+	if prog == nil || id < 0 {
+		return nil
+	}
+	node := prog.Node(id)
 	if node == nil {
 		return nil
 	}
 	if node.Type == ';' {
-		left := flattenSemicolons(node.Child[0])
-		right := flattenSemicolons(node.Child[1])
+		left := flattenSemicolons(prog, node.Child[0])
+		right := flattenSemicolons(prog, node.Child[1])
 		return append(left, right...)
 	}
-	return []*Tree{node}
+	return []int{id}
 }
 
 // isCase checks if a statement is a simple command starting with "case".
-func isCase(node *Tree) bool {
+func isCase(prog *Program, id int) bool {
+	if prog == nil || id < 0 {
+		return false
+	}
+	node := prog.Node(id)
 	if node == nil {
 		return false
 	}
 	if node.Type != tokenSimple {
 		return false
 	}
-	parts := flattenArgList(node.Child[0])
+	parts := flattenArgList(prog, node.Child[0])
 	if len(parts) == 0 {
 		return false
 	}
-	first := parts[0]
-	return first.Type == tokenWord && first.Str == "case"
+	first := prog.Node(parts[0])
+	if first == nil || first.Type != tokenWord {
+		return false
+	}
+	tok := prog.Token(first.Tok)
+	return tok != nil && tok.Text == "case"
 }
 
 // extractCasePatterns expands the words after "case" in a case command.
-func (r *runner) extractCasePatterns(node *Tree) ([]string, error) {
-	parts := flattenArgList(node.Child[0])
+func (r *runner) extractCasePatterns(id int) ([]string, error) {
+	node := r.prog.Node(id)
+	parts := flattenArgList(r.prog, node.Child[0])
 	if len(parts) <= 1 {
 		return nil, nil
 	}
@@ -658,14 +736,15 @@ func (r *runner) extractCasePatterns(node *Tree) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		pats = append(pats, vals...)
+		pats = append(pats, wordTexts(vals)...)
 	}
 	return pats, nil
 }
 
 // execBang implements: ! command
 // Inverts the status: true becomes "false", false becomes "".
-func (r *runner) execBang(node *Tree) error {
+func (r *runner) execBang(id int) error {
+	node := r.prog.Node(id)
 	err := r.exec(node.Child[0])
 	if err != nil {
 		return err
@@ -680,7 +759,8 @@ func (r *runner) execBang(node *Tree) error {
 
 // execSubshell implements: @ command
 // Runs the child in a cloned environment (simulating a subshell).
-func (r *runner) execSubshell(node *Tree) error {
+func (r *runner) execSubshell(id int) error {
+	node := r.prog.Node(id)
 	sub := r.child(r.env.clone())
 	err := sub.exec(node.Child[0])
 	// Propagate status back to parent.
@@ -690,7 +770,8 @@ func (r *runner) execSubshell(node *Tree) error {
 
 // execAndAnd implements: left && right
 // Execute right only if left status is true.
-func (r *runner) execAndAnd(node *Tree) error {
+func (r *runner) execAndAnd(id int) error {
+	node := r.prog.Node(id)
 	if err := r.exec(node.Child[0]); err != nil {
 		return err
 	}
@@ -702,7 +783,8 @@ func (r *runner) execAndAnd(node *Tree) error {
 
 // execOrOr implements: left || right
 // Execute right only if left status is false.
-func (r *runner) execOrOr(node *Tree) error {
+func (r *runner) execOrOr(id int) error {
+	node := r.prog.Node(id)
 	if err := r.exec(node.Child[0]); err != nil {
 		return err
 	}
@@ -713,15 +795,16 @@ func (r *runner) execOrOr(node *Tree) error {
 }
 
 // execFnDef implements: fn name { list } and fn name (deletion)
-func (r *runner) execFnDef(node *Tree) error {
+func (r *runner) execFnDef(id int) error {
+	node := r.prog.Node(id)
 	names, err := r.expandWords(node.Child[0])
 	if err != nil {
 		return err
 	}
 	body := node.Child[1]
-	for _, name := range names {
-		if body != nil {
-			r.env.defineFunc(name, body)
+	for _, name := range wordTexts(names) {
+		if body >= 0 {
+			r.env.defineFunc(name, r.prog, body)
 		} else {
 			r.env.deleteFunc(name)
 		}
@@ -733,24 +816,29 @@ func (r *runner) execFnDef(node *Tree) error {
 // execFunc runs a previously defined function body with the given arguments.
 // Temporarily binds $* to the function arguments, restoring the caller's $*
 // when the function returns.
-func (r *runner) execFunc(name string, body *Tree, args []string) error {
-	savedStar, hadStar := r.env.vars["*"]
+func (r *runner) execFunc(name string, body funcBody, args []string) error {
+	savedStar := r.env.lookup("*")
+	_, hadStar := r.env.vars["*"]
+	savedProg := r.prog
 	r.env.set("*", args)
-	err := r.exec(body)
+	r.prog = body.prog
+	err := r.exec(body.root)
+	r.prog = savedProg
 	if hadStar {
-		r.env.vars["*"] = savedStar
+		r.env.set("*", savedStar)
 	} else {
 		r.env.unset("*")
 	}
 	return err
 }
 
-func (r *runner) execWithLocalStar(node *Tree, args []string) error {
-	savedStar, hadStar := r.env.vars["*"]
+func (r *runner) execWithLocalStar(id int, args []string) error {
+	savedStar := r.env.lookup("*")
+	_, hadStar := r.env.vars["*"]
 	r.env.set("*", args)
-	err := r.exec(node)
+	err := r.exec(id)
 	if hadStar {
-		r.env.vars["*"] = savedStar
+		r.env.set("*", savedStar)
 	} else {
 		r.env.unset("*")
 	}
@@ -794,13 +882,18 @@ func (r *runner) searchPath(name string) string {
 	return ""
 }
 
-func (r *runner) expandWord(node *Tree) ([]string, error) {
+func (r *runner) expandWord(id int) ([]wordValue, error) {
+	node := r.prog.Node(id)
 	if node == nil {
 		return nil, nil
 	}
 	switch node.Type {
 	case tokenWord:
-		return []string{node.Str}, nil
+		tok := r.prog.Token(node.Tok)
+		if tok == nil {
+			return nil, fmt.Errorf("missing token for word node")
+		}
+		return []wordValue{{text: tok.Text, glob: tok.Glob}}, nil
 	case tokenParen:
 		return r.expandWords(node.Child[0])
 	case '$':
@@ -808,32 +901,32 @@ func (r *runner) expandWord(node *Tree) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		return r.lookupVar(name), nil
+		return r.lookupVarWords(name), nil
 	case tokenCount:
 		name, err := r.expandName(node.Child[0])
 		if err != nil {
 			return nil, err
 		}
-		return []string{strconv.Itoa(len(r.lookupVar(name)))}, nil
+		return []wordValue{{text: strconv.Itoa(len(r.lookupVar(name))), glob: false}}, nil
 	case '"':
 		name, err := r.expandName(node.Child[0])
 		if err != nil {
 			return nil, err
 		}
-		return []string{strings.Join(r.lookupVar(name), " ")}, nil
+		return []wordValue{{text: strings.Join(r.lookupVar(name), " "), glob: false}}, nil
 	case tokenSub:
 		name, err := r.expandName(node.Child[0])
 		if err != nil {
 			return nil, err
 		}
-		values := r.lookupVar(name)
+		values := r.lookupVarWords(name)
 		parts, err := r.expandWords(node.Child[1])
 		if err != nil {
 			return nil, err
 		}
-		var out []string
+		var out []wordValue
 		for _, part := range parts {
-			indexes, err := parseSubscript(part, len(values))
+			indexes, err := parseSubscript(part.text, len(values))
 			if err != nil {
 				return nil, err
 			}
@@ -870,16 +963,21 @@ func (r *runner) expandWord(node *Tree) ([]string, error) {
 		}
 		return res, nil
 	case '`':
-		return r.execBackquote(node)
+		return r.execBackquote(id)
 	case tokenPipeFD:
-		return r.execProcSub(node)
+		items, err := r.execProcSub(id)
+		if err != nil {
+			return nil, err
+		}
+		return []wordValue{{text: items[0], glob: false}}, nil
 	default:
 		return nil, fmt.Errorf("unsupported word node %s", tokenName(node.Type))
 	}
 }
 
 // execProcSub implements process substitution: <{ command } and >{ command }
-func (r *runner) execProcSub(node *Tree) ([]string, error) {
+func (r *runner) execProcSub(id int) ([]string, error) {
+	node := r.prog.Node(id)
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -958,9 +1056,11 @@ func init() {
 		"rfork":   (*runner).execRfork,
 	}
 }
-func (r *runner) execBackquote(node *Tree) ([]string, error) {
+func (r *runner) execBackquote(id int) ([]wordValue, error) {
+	node := r.prog.Node(id)
 	var buf bytes.Buffer
 	sub := &runner{
+		prog:   r.prog,
 		env:    r.env,
 		stdin:  r.stdin,
 		stdout: &buf,
@@ -971,13 +1071,17 @@ func (r *runner) execBackquote(node *Tree) ([]string, error) {
 	// Backquotes isolate evaluation errors from the parent sequence.
 	_ = sub.exec(node.Child[0])
 	output := buf.String()
-	return splitByIFS(output, r.env), nil
+	return splitByIFSWords(output, r.env), nil
 }
 
 // splitByIFS splits output into words using the characters in $ifs.
 // If $ifs is not set, defaults to space, tab, newline.
 // Multiple consecutive IFS characters do not produce empty words.
 func splitByIFS(output string, env *shellEnv) []string {
+	return wordTexts(splitByIFSWords(output, env))
+}
+
+func splitByIFSWords(output string, env *shellEnv) []wordValue {
 	ifs := " \t\n"
 	if v, ok := env.vars["ifs"]; ok {
 		if len(v) == 0 {
@@ -991,14 +1095,15 @@ func splitByIFS(output string, env *shellEnv) []string {
 		if output == "" {
 			return nil
 		}
-		return []string{output}
+		return []wordValue{{text: output, glob: hasGlobPattern(output)}}
 	}
-	var words []string
+	var words []wordValue
 	var cur strings.Builder
 	for _, ch := range output {
 		if strings.ContainsRune(ifs, ch) {
 			if cur.Len() > 0 {
-				words = append(words, cur.String())
+				text := cur.String()
+				words = append(words, wordValue{text: text, glob: hasGlobPattern(text)})
 				cur.Reset()
 			}
 		} else {
@@ -1006,17 +1111,19 @@ func splitByIFS(output string, env *shellEnv) []string {
 		}
 	}
 	if cur.Len() > 0 {
-		words = append(words, cur.String())
+		text := cur.String()
+		words = append(words, wordValue{text: text, glob: hasGlobPattern(text)})
 	}
 	return words
 }
 
-func (r *runner) expandWords(node *Tree) ([]string, error) {
+func (r *runner) expandWords(id int) ([]wordValue, error) {
+	node := r.prog.Node(id)
 	if node == nil {
 		return nil, nil
 	}
 	if node.Type != tokenWords {
-		return r.expandWord(node)
+		return r.expandWord(id)
 	}
 	left, err := r.expandWords(node.Child[0])
 	if err != nil {
@@ -1029,15 +1136,15 @@ func (r *runner) expandWords(node *Tree) ([]string, error) {
 	return append(left, right...), nil
 }
 
-func (r *runner) expandName(node *Tree) (string, error) {
-	values, err := r.expandWord(node)
+func (r *runner) expandName(id int) (string, error) {
+	values, err := r.expandWord(id)
 	if err != nil {
 		return "", err
 	}
 	if len(values) == 0 {
 		return "", nil
 	}
-	return normalizeName(values[0]), nil
+	return normalizeName(values[0].text), nil
 }
 
 func (r *runner) lookupVar(name string) []string {
@@ -1054,27 +1161,41 @@ func (r *runner) lookupVar(name string) []string {
 	return r.env.lookup(name)
 }
 
-func concatWords(left, right []string) ([]string, error) {
+func (r *runner) lookupVarWords(name string) []wordValue {
+	if name == "" {
+		return nil
+	}
+	if index, err := strconv.Atoi(name); err == nil {
+		args := r.env.lookupWords("*")
+		if index < 1 || index > len(args) {
+			return nil
+		}
+		return []wordValue{args[index-1]}
+	}
+	return r.env.lookupWords(name)
+}
+
+func concatWords(left, right []wordValue) ([]wordValue, error) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, fmt.Errorf("null list in concatenation")
 	}
 	switch {
 	case len(left) == len(right):
-		out := make([]string, len(left))
+		out := make([]wordValue, len(left))
 		for i := range left {
-			out[i] = left[i] + right[i]
+			out[i] = wordValue{text: left[i].text + right[i].text, glob: left[i].glob || right[i].glob}
 		}
 		return out, nil
 	case len(left) == 1:
-		out := make([]string, len(right))
+		out := make([]wordValue, len(right))
 		for i := range right {
-			out[i] = left[0] + right[i]
+			out[i] = wordValue{text: left[0].text + right[i].text, glob: left[0].glob || right[i].glob}
 		}
 		return out, nil
 	case len(right) == 1:
-		out := make([]string, len(left))
+		out := make([]wordValue, len(left))
 		for i := range left {
-			out[i] = left[i] + right[0]
+			out[i] = wordValue{text: left[i].text + right[0].text, glob: left[i].glob || right[0].glob}
 		}
 		return out, nil
 	default:
@@ -1391,7 +1512,7 @@ func (r *runner) execWhatis(args []string) error {
 			continue
 		}
 		if body, ok := r.env.lookupFunc(name); ok {
-			fmt.Fprintf(r.stdout, "fn %s %s\n", name, FormatTree(body))
+			fmt.Fprintf(r.stdout, "fn %s %s\n", name, FormatTree(body.prog, body.root))
 			continue
 		}
 		path := r.searchPath(name)
@@ -1500,7 +1621,7 @@ func (r *runner) cleanEnv() {
 	varApid := r.env.lookup("apid")
 
 	r.env.vars = make(map[string][]string)
-	r.env.fns = make(map[string]*Tree)
+	r.env.fns = make(map[string]funcBody)
 
 	// Restore essential shell variables
 	if varStatus != nil {

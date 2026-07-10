@@ -5,42 +5,81 @@ import "testing"
 func TestFormatTreeCases(t *testing.T) {
 	cases := []struct {
 		name string
-		tree *Tree
+		prog *Program
 		want string
 	}{
-		{name: "nil", want: ""},
 		{
 			name: "subshell",
-			tree: NewUnaryNode(tokenSubshell, NewUnaryNode(tokenSimple, argListTree(Token("echo", tokenWord), Token("hi", tokenWord)))),
+			prog: &Program{
+				Tokens: []LexToken{
+					{Text: "echo"},
+					{Text: "hi"},
+				},
+				Nodes: []Node{
+					{Type: tokenWord, Tok: 0},
+					{Type: tokenWord, Tok: 1},
+					{Type: tokenArgList, Child: [3]int{0, 1, -1}},
+					{Type: tokenSimple, Child: [3]int{2, -1, -1}},
+					{Type: tokenSubshell, Child: [3]int{3, -1, -1}},
+				},
+				Root: 4,
+			},
 			want: "@ echo hi",
 		},
 		{
 			name: "dup redirection",
-			tree: &Tree{
-				Type:  tokenDup,
-				RType: redirDupFD,
-				FD0:   1,
-				FD1:   2,
-				Child: [3]*Tree{nil, NewUnaryNode(tokenSimple, argListTree(Token("echo", tokenWord), Token("hi", tokenWord))), nil},
+			prog: &Program{
+				Tokens: []LexToken{
+					{Text: "echo"},
+					{Text: "hi"},
+				},
+				Nodes: []Node{
+					{Type: tokenWord, Tok: 0},
+					{Type: tokenWord, Tok: 1},
+					{Type: tokenArgList, Child: [3]int{0, 1, -1}},
+					{Type: tokenSimple, Child: [3]int{2, -1, -1}},
+					{Type: tokenDup, RType: redirDupFD, FD0: 1, FD1: 2, Child: [3]int{-1, 3, -1}},
+				},
+				Root: 4,
 			},
 			want: ">[2=1]echo hi",
 		},
 		{
 			name: "function body",
-			tree: NewBinaryNode(tokenFn, Token("myfn", tokenWord), NewUnaryNode(tokenBrace, NewUnaryNode(tokenSimple, argListTree(Token("echo", tokenWord), Token("ok", tokenWord))))),
+			prog: &Program{
+				Tokens: []LexToken{
+					{Text: "myfn"},
+					{Text: "echo"},
+					{Text: "ok"},
+				},
+				Nodes: []Node{
+					{Type: tokenWord, Tok: 0},
+					{Type: tokenWord, Tok: 1},
+					{Type: tokenWord, Tok: 2},
+					{Type: tokenArgList, Child: [3]int{1, 2, -1}},
+					{Type: tokenSimple, Child: [3]int{3, -1, -1}},
+					{Type: tokenBrace, Child: [3]int{4, -1, -1}},
+					{Type: tokenFn, Child: [3]int{0, 5, -1}},
+				},
+				Root: 6,
+			},
 			want: "fn myfn {echo ok}",
 		},
 		{
 			name: "pipe fd pair",
-			tree: &Tree{
-				Type: tokenPipe,
-				FD0:  1,
-				FD1:  2,
-				Child: [3]*Tree{
-					NewUnaryNode(tokenSimple, argListTree(Token("left", tokenWord))),
-					NewUnaryNode(tokenSimple, argListTree(Token("right", tokenWord))),
-					nil,
+			prog: &Program{
+				Tokens: []LexToken{
+					{Text: "left"},
+					{Text: "right"},
 				},
+				Nodes: []Node{
+					{Type: tokenWord, Tok: 0},
+					{Type: tokenSimple, Child: [3]int{0, -1, -1}},
+					{Type: tokenWord, Tok: 1},
+					{Type: tokenSimple, Child: [3]int{2, -1, -1}},
+					{Type: tokenPipe, FD0: 1, FD1: 2, Child: [3]int{1, 3, -1}},
+				},
+				Root: 4,
 			},
 			want: "left|[1=2]right",
 		},
@@ -49,7 +88,7 @@ func TestFormatTreeCases(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			if got := FormatTree(tc.tree); got != tc.want {
+			if got := FormatTree(tc.prog, tc.prog.Root); got != tc.want {
 				t.Fatalf("FormatTree() = %q, want %q", got, tc.want)
 			}
 		})
@@ -93,15 +132,4 @@ func TestQuoteAndDeglobHelpers(t *testing.T) {
 			}
 		})
 	}
-}
-
-func argListTree(words ...*Tree) *Tree {
-	if len(words) == 0 {
-		return nil
-	}
-	node := words[0]
-	for i := 1; i < len(words); i++ {
-		node = NewBinaryNode(tokenArgList, node, words[i])
-	}
-	return node
 }

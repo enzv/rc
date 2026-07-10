@@ -10,7 +10,8 @@ import (
 	"syscall"
 )
 
-func (r *runner) execPipe(node *Tree) error {
+func (r *runner) execPipe(id int) error {
+	node := r.prog.Node(id)
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return err
@@ -89,26 +90,35 @@ func writePipeDiag(r *runner, text string) {
 	_, _ = io.WriteString(target, text)
 }
 
-func (r *runner) execRedir(node *Tree) error {
+func (r *runner) execRedir(id int) error {
 	child := r.child(r.env)
 	var (
 		closers []io.Closer
 		ok      bool
 		err     error
-		next    = node
-		leaf    *Tree
-		chain   []*Tree
+		next    = id
+		leaf    = -1
+		chain   []int
 	)
-	for next != nil && (next.Type == tokenRedir || next.Type == tokenDup) {
-		chain = append(chain, next)
-		if next.Child[1] == nil || (next.Child[1].Type != tokenRedir && next.Child[1].Type != tokenDup) {
-			leaf = next.Child[1]
+	for next >= 0 {
+		node := r.prog.Node(next)
+		if node == nil || (node.Type != tokenRedir && node.Type != tokenDup) {
 			break
 		}
-		next = next.Child[1]
+		chain = append(chain, next)
+		if node.Child[1] < 0 {
+			leaf = node.Child[1]
+			break
+		}
+		nextNode := r.prog.Node(node.Child[1])
+		if nextNode == nil || (nextNode.Type != tokenRedir && nextNode.Type != tokenDup) {
+			leaf = node.Child[1]
+			break
+		}
+		next = node.Child[1]
 	}
 	sort.Slice(chain, func(i, j int) bool {
-		return chain[i].Pos.Offset < chain[j].Pos.Offset
+		return r.prog.Pos(chain[i]).Offset < r.prog.Pos(chain[j]).Offset
 	})
 	for i := 0; i < len(chain); i++ {
 		var closer io.Closer
@@ -135,17 +145,18 @@ func (r *runner) execRedir(node *Tree) error {
 	return child.exec(leaf)
 }
 
-func (r *runner) applyRedir(node *Tree) (io.Closer, bool, error) {
+func (r *runner) applyRedir(id int) (io.Closer, bool, error) {
+	node := r.prog.Node(id)
 	switch node.Type {
 	case tokenDup:
-		if err := r.applyDup(node); err != nil {
+		if err := r.applyDup(id); err != nil {
 			return nil, false, err
 		}
 		return nil, true, nil
 	case tokenRedir:
 		switch node.RType {
 		case redirWrite, redirAppend, redirRead, redirRDWR:
-			target, ok := r.expandRedirTarget(node)
+			target, ok := r.expandRedirTarget(id)
 			if !ok {
 				return nil, false, nil
 			}
@@ -153,7 +164,7 @@ func (r *runner) applyRedir(node *Tree) (io.Closer, bool, error) {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(r.env.cwd, path)
 			}
-			file, err := r.openRedirFile(node, path)
+			file, err := r.openRedirFile(id, path)
 			if err != nil {
 				display := target
 				prefix := r.shellPrefix()
@@ -165,11 +176,14 @@ func (r *runner) applyRedir(node *Tree) (io.Closer, bool, error) {
 				r.env.setStatus("1")
 				return nil, false, exitSignal{status: "1", code: 1}
 			}
-			r.bindFile(node, file)
+			r.bindFile(id, file)
 			return file, true, nil
 		case redirHere:
-			body := node.HereBody
-			if !node.HereQuoted {
+			body, quoted, ok := r.prog.HereDoc(id)
+			if !ok {
+				return nil, false, fmt.Errorf("missing here-doc body")
+			}
+			if !quoted {
 				body = expandHereDoc(body, r.env)
 			}
 			r.bindReader(node.FD0, strings.NewReader(body))
@@ -182,7 +196,8 @@ func (r *runner) applyRedir(node *Tree) (io.Closer, bool, error) {
 	}
 }
 
-func (r *runner) expandRedirTarget(node *Tree) (string, bool) {
+func (r *runner) expandRedirTarget(id int) (string, bool) {
+	node := r.prog.Node(id)
 	values, err := r.expandWord(node.Child[0])
 	if err != nil {
 		_, _ = fmt.Fprintf(r.stderr, "%v\n", err)
@@ -190,14 +205,17 @@ func (r *runner) expandRedirTarget(node *Tree) (string, bool) {
 		return "", false
 	}
 	if len(values) != 1 {
-		_, _ = fmt.Fprintf(r.stderr, "%s requires singleton\n", redirName(node))
+		_, _ = fmt.Fprintf(r.stderr, "%s requires singleton\n", redirNameNode(node))
 		r.env.setStatus("1")
 		return "", false
 	}
-	return values[0], true
+	return values[0].text, true
 }
 
-func redirName(node *Tree) string {
+func redirNameNode(node *Node) string {
+	if node == nil {
+		return "redir"
+	}
 	switch node.RType {
 	case redirAppend:
 		return ">>"
@@ -213,7 +231,66 @@ func redirName(node *Tree) string {
 	return "redir"
 }
 
-func (r *runner) openRedirFile(node *Tree, path string) (*os.File, error) {
+func expandHereDoc(body string, env *shellEnv) string {
+	var out strings.Builder
+	for i := 0; i < len(body); {
+		if body[i] != '$' {
+			out.WriteByte(body[i])
+			i++
+			continue
+		}
+		if i+1 >= len(body) {
+			out.WriteByte('$')
+			i++
+			continue
+		}
+		if body[i+1] == '$' {
+			out.WriteByte('$')
+			i += 2
+			continue
+		}
+		j := i + 1
+		if body[j] >= '0' && body[j] <= '9' {
+			for j < len(body) && body[j] >= '0' && body[j] <= '9' {
+				j++
+			}
+			out.WriteString(strings.Join(expandHereVar(body[i+1:j], env), " "))
+			if j < len(body) && body[j] == '^' {
+				j++
+			}
+			i = j
+			continue
+		}
+		for j < len(body) && idchr(int(body[j])) {
+			j++
+		}
+		if j == i+1 {
+			out.WriteByte('$')
+			i++
+			continue
+		}
+		out.WriteString(strings.Join(expandHereVar(body[i+1:j], env), " "))
+		if j < len(body) && body[j] == '^' {
+			j++
+		}
+		i = j
+	}
+	return out.String()
+}
+
+func expandHereVar(name string, env *shellEnv) []string {
+	if name == "" {
+		return nil
+	}
+	if len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
+		r := &runner{env: env}
+		return r.lookupVar(name)
+	}
+	return env.lookup(name)
+}
+
+func (r *runner) openRedirFile(id int, path string) (*os.File, error) {
+	node := r.prog.Node(id)
 	switch node.RType {
 	case redirWrite:
 		return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
@@ -229,7 +306,8 @@ func (r *runner) openRedirFile(node *Tree, path string) (*os.File, error) {
 	}
 }
 
-func (r *runner) bindFile(node *Tree, file *os.File) {
+func (r *runner) bindFile(id int, file *os.File) {
+	node := r.prog.Node(id)
 	switch node.RType {
 	case redirRead:
 		r.bindReader(node.FD0, file)
@@ -252,7 +330,8 @@ func (badFDWriter) Write(p []byte) (int, error) {
 	return 0, syscall.EBADF
 }
 
-func (r *runner) applyDup(node *Tree) error {
+func (r *runner) applyDup(id int) error {
+	node := r.prog.Node(id)
 	switch node.RType {
 	case redirClose:
 		switch node.FD0 {
@@ -316,62 +395,4 @@ func (r *runner) bindWriter(fd int, writer io.Writer) {
 	case 2:
 		r.stderr = writer
 	}
-}
-
-func expandHereDoc(body string, env *shellEnv) string {
-	var out strings.Builder
-	for i := 0; i < len(body); {
-		if body[i] != '$' {
-			out.WriteByte(body[i])
-			i++
-			continue
-		}
-		if i+1 >= len(body) {
-			out.WriteByte('$')
-			i++
-			continue
-		}
-		if body[i+1] == '$' {
-			out.WriteByte('$')
-			i += 2
-			continue
-		}
-		j := i + 1
-		if body[j] >= '0' && body[j] <= '9' {
-			for j < len(body) && body[j] >= '0' && body[j] <= '9' {
-				j++
-			}
-			out.WriteString(strings.Join(expandHereVar(body[i+1:j], env), " "))
-			if j < len(body) && body[j] == '^' {
-				j++
-			}
-			i = j
-			continue
-		}
-		for j < len(body) && idchr(int(body[j])) {
-			j++
-		}
-		if j == i+1 {
-			out.WriteByte('$')
-			i++
-			continue
-		}
-		out.WriteString(strings.Join(expandHereVar(body[i+1:j], env), " "))
-		if j < len(body) && body[j] == '^' {
-			j++
-		}
-		i = j
-	}
-	return out.String()
-}
-
-func expandHereVar(name string, env *shellEnv) []string {
-	if name == "" {
-		return nil
-	}
-	if len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
-		r := &runner{env: env}
-		return r.lookupVar(name)
-	}
-	return env.lookup(name)
 }

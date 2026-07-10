@@ -12,16 +12,12 @@ func ParseSource(src string) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &parser{tokens: tokens}
-	root, err := p.parseList(tokenEOF)
+	prog, err := parseTokens(tokens)
 	if err != nil {
 		return nil, err
 	}
-	if p.current().Kind != tokenEOF {
-		return nil, p.unexpected("unexpected trailing token")
-	}
-	attachHereDocs(root, prepared.HereDocs)
-	return &Program{Tokens: tokens, Root: root}, nil
+	attachHereDocs(prog, prepared.HereDocs)
+	return prog, nil
 }
 
 type preparedSource struct {
@@ -41,26 +37,37 @@ type hereDoc struct {
 }
 
 func prepareSource(src string) preparedSource {
-	var out strings.Builder
-	out.Grow(len(src))
 	var pending []pendingHereDoc
 	var docs []hereDoc
+	var out strings.Builder
+	var dirty bool
+	last := 0
 	inQuote := false
 	inComment := false
+	flush := func(next int) {
+		if !dirty {
+			dirty = true
+			out.Grow(len(src))
+			out.WriteString(src[:next])
+		} else {
+			out.WriteString(src[last:next])
+		}
+		last = next
+	}
 
 	for i := 0; i < len(src); {
 		ch := src[i]
-		out.WriteByte(ch)
-
 		if inComment {
 			i++
 			if ch == '\n' {
 				inComment = false
 				if len(pending) != 0 {
+					flush(i)
 					next, found := collectHereDocs(src, i, pending)
 					docs = append(docs, found...)
 					pending = nil
 					i = next
+					last = next
 				}
 			}
 			continue
@@ -69,7 +76,6 @@ func prepareSource(src string) preparedSource {
 			i++
 			if ch == '\'' {
 				if i < len(src) && src[i] == '\'' {
-					out.WriteByte(src[i])
 					i++
 				} else {
 					inQuote = false
@@ -91,7 +97,6 @@ func prepareSource(src string) preparedSource {
 				if doc.tag != "" {
 					pending = append(pending, doc)
 				}
-				out.WriteByte('<')
 				i += 2
 				continue
 			}
@@ -99,17 +104,26 @@ func prepareSource(src string) preparedSource {
 		case '\n':
 			i++
 			if len(pending) != 0 {
+				flush(i)
 				next, found := collectHereDocs(src, i, pending)
 				docs = append(docs, found...)
 				pending = nil
 				i = next
+				last = next
 			}
 		default:
 			i++
 		}
 	}
+	if dirty {
+		out.WriteString(src[last:])
+		return preparedSource{
+			Stripped: out.String(),
+			HereDocs: docs,
+		}
+	}
 	return preparedSource{
-		Stripped: out.String(),
+		Stripped: src,
 		HereDocs: docs,
 	}
 }
@@ -178,31 +192,44 @@ func collectHereDocs(src string, start int, pending []pendingHereDoc) (int, []he
 	return i, docs
 }
 
-func attachHereDocs(root *Tree, docs []hereDoc) {
-	if root == nil || len(docs) == 0 {
+func attachHereDocs(prog *Program, docs []hereDoc) {
+	if prog == nil || len(docs) == 0 || prog.Root < 0 {
 		return
 	}
-	var index int
-	var walk func(*Tree)
-	walk = func(node *Tree) {
-		if node == nil || index >= len(docs) {
-			return
+	if prog.HereDocs == nil {
+		prog.HereDocs = make(map[int]hereDoc, len(docs))
+	}
+	index := 0
+	stack := make([]int, 0, len(prog.Nodes))
+	stack = append(stack, prog.Root)
+	for len(stack) > 0 && index < len(docs) {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if id < 0 {
+			continue
 		}
+		node := &prog.Nodes[id]
 		if node.Type == tokenRedir && node.RType == redirHere {
-			node.HereBody = docs[index].body
-			node.HereQuoted = docs[index].quoted
+			prog.HereDocs[id] = docs[index]
 			index++
 		}
-		walk(node.Child[0])
-		walk(node.Child[1])
-		walk(node.Child[2])
+		if node.Child[2] >= 0 {
+			stack = append(stack, node.Child[2])
+		}
+		if node.Child[1] >= 0 {
+			stack = append(stack, node.Child[1])
+		}
+		if node.Child[0] >= 0 {
+			stack = append(stack, node.Child[0])
+		}
 	}
-	walk(root)
 }
 
 type parser struct {
-	tokens []LexToken
-	pos    int
+	tokens  []LexToken
+	pos     int
+	nodes   []Node
+	offsets []int
 }
 
 func containsToken(stops []NodeType, kind NodeType) bool {
@@ -214,8 +241,73 @@ func containsToken(stops []NodeType, kind NodeType) bool {
 	return false
 }
 
-func (p *parser) parseList(stops ...NodeType) (*Tree, error) {
-	var list *Tree
+func parseTokens(tokens []LexToken) (*Program, error) {
+	p := &parser{
+		tokens:  tokens,
+		nodes:   make([]Node, 0, len(tokens)),
+		offsets: make([]int, 0, len(tokens)),
+	}
+	root, err := p.parseList(tokenEOF)
+	if err != nil {
+		return nil, err
+	}
+	if p.current().Kind != tokenEOF {
+		return nil, p.unexpected("unexpected trailing token")
+	}
+	return &Program{Tokens: tokens, Nodes: p.nodes, Offsets: p.offsets, Root: root}, nil
+}
+
+func (p *parser) addNode(node Node) int {
+	p.nodes = append(p.nodes, node)
+	p.offsets = append(p.offsets, 0)
+	return len(p.nodes) - 1
+}
+
+func (p *parser) newNode(kind NodeType, pos Position) int {
+	id := p.addNode(Node{Type: kind})
+	p.offsets[id] = pos.Offset
+	return id
+}
+
+func (p *parser) syntaxNode(tok LexToken) int {
+	id := p.addNode(Node{
+		Type:  tok.Kind,
+		RType: tok.RType,
+		FD0:   tok.FD0,
+		FD1:   tok.FD1,
+	})
+	p.offsets[id] = tok.Pos.Offset
+	return id
+}
+
+func (p *parser) wordNode(tok LexToken) int {
+	id := p.addNode(Node{
+		Type: tokenWord,
+		Tok:  p.pos,
+	})
+	p.offsets[id] = tok.Pos.Offset
+	return id
+}
+
+func (p *parser) attach(id, c0, c1, c2 int) int {
+	p.nodes[id].Child = [3]int{c0, c1, c2}
+	return id
+}
+
+func (p *parser) combine(kind NodeType, pos Position, c0, c1, c2 int) int {
+	if kind == ';' {
+		if c0 < 0 {
+			return c1
+		}
+		if c1 < 0 {
+			return c0
+		}
+	}
+	return p.attach(p.newNode(kind, pos), c0, c1, c2)
+}
+
+func (p *parser) parseList(stops ...NodeType) (int, error) {
+	list := -1
 	for {
 		p.skipSeparators()
 		kind := p.current().Kind
@@ -224,15 +316,14 @@ func (p *parser) parseList(stops ...NodeType) (*Tree, error) {
 		}
 		cmd, err := p.parseAndOr()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
 		switch p.current().Kind {
 		case '&':
-			cmd = NewUnaryNode('&', cmd)
-			cmd.Pos = p.current().Pos
+			cmd = p.attach(p.newNode('&', p.current().Pos), cmd, -1, -1)
 			p.next()
 		}
-		list = NewBinaryNode(';', list, cmd)
+		list = p.combine(';', Position{}, list, cmd, -1)
 
 		hasSep := false
 		switch p.current().Kind {
@@ -241,16 +332,16 @@ func (p *parser) parseList(stops ...NodeType) (*Tree, error) {
 			hasSep = true
 		}
 
-		if !hasSep && cmd.Type != '&' {
+		if !hasSep && (cmd < 0 || p.nodes[cmd].Type != '&') {
 			return list, nil
 		}
 	}
 }
 
-func (p *parser) parseAndOr() (*Tree, error) {
+func (p *parser) parseAndOr() (int, error) {
 	left, err := p.parsePrefixed()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	for {
 		switch p.current().Kind {
@@ -259,17 +350,16 @@ func (p *parser) parseAndOr() (*Tree, error) {
 			p.next()
 			right, err := p.parsePrefixed()
 			if err != nil {
-				return nil, err
+				return -1, err
 			}
-			left = NewBinaryNode(op.Kind, left, right)
-			left.Pos = op.Pos
+			left = p.combine(op.Kind, op.Pos, left, right, -1)
 		default:
 			return left, nil
 		}
 	}
 }
 
-func (p *parser) parsePrefixed() (*Tree, error) {
+func (p *parser) parsePrefixed() (int, error) {
 	switch p.current().Kind {
 	case tokenRedir, tokenDup:
 		if p.current().Kind == tokenRedir && p.nextKind() == '{' {
@@ -281,12 +371,9 @@ func (p *parser) parsePrefixed() (*Tree, error) {
 		p.next()
 		child, err := p.parsePrefixed()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		node := cloneTree(op.Tree)
-		node.Type = op.Kind
-		node.Pos = op.Pos
-		return Mung1(node, child), nil
+		return p.attach(p.syntaxNode(op), child, -1, -1), nil
 	}
 	if p.canStartFirst() {
 		save := p.pos
@@ -296,43 +383,40 @@ func (p *parser) parsePrefixed() (*Tree, error) {
 			p.next()
 			right, err := p.parseWord()
 			if err != nil {
-				return nil, err
+				return -1, err
 			}
-			var child *Tree
+			child := -1
 			if !p.isCommandBoundary(p.current().Kind) {
 				child, err = p.parsePrefixed()
 				if err != nil {
-					return nil, err
+					return -1, err
 				}
 			}
-			node := NewTernaryNode('=', left, right, child)
-			node.Pos = assignTok.Pos
-			return node, nil
+			return p.attach(p.newNode('=', assignTok.Pos), left, right, child), nil
 		}
 		p.pos = save
 	}
 	return p.parsePipe()
 }
 
-func (p *parser) parsePipe() (*Tree, error) {
+func (p *parser) parsePipe() (int, error) {
 	left, err := p.parsePrimaryCommand()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	for p.current().Kind == tokenPipe {
-		op := cloneTree(p.current().Tree)
-		op.Pos = p.current().Pos
+		op := p.syntaxNode(p.current())
 		p.next()
 		right, err := p.parsePrefixed()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		left = Mung2(op, left, right)
+		left = p.attach(op, left, right, -1)
 	}
 	return left, nil
 }
 
-func (p *parser) parsePrimaryCommand() (*Tree, error) {
+func (p *parser) parsePrimaryCommand() (int, error) {
 	switch p.current().Kind {
 	case '{':
 		return p.parseBraceWithEpilog()
@@ -352,56 +436,52 @@ func (p *parser) parsePrimaryCommand() (*Tree, error) {
 	return p.parseSimple()
 }
 
-func (p *parser) parseBraceWithEpilog() (*Tree, error) {
+func (p *parser) parseBraceWithEpilog() (int, error) {
 	brace, err := p.parseBrace()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	epilog, err := p.parseEpilog()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	return EpiMung(brace, epilog), nil
+	return p.combineEpilog(brace, epilog), nil
 }
 
-func (p *parser) parseBrace() (*Tree, error) {
+func (p *parser) parseBrace() (int, error) {
 	open := p.current()
 	if err := p.expect('{'); err != nil {
-		return nil, err
+		return -1, err
 	}
 	body, err := p.parseList('}')
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	if err := p.expect('}'); err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := NewUnaryNode(tokenBrace, body)
-	node.Pos = open.Pos
-	return node, nil
+	return p.attach(p.newNode(tokenBrace, open.Pos), body, -1, -1), nil
 }
 
-func (p *parser) parseParenCommand() (*Tree, error) {
+func (p *parser) parseParenCommand() (int, error) {
 	open := p.current()
 	if err := p.expect('('); err != nil {
-		return nil, err
+		return -1, err
 	}
 	body, err := p.parseList(')')
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	if err := p.expect(')'); err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := NewUnaryNode(tokenPCmd, body)
-	node.Pos = open.Pos
-	return node, nil
+	return p.attach(p.newNode(tokenPCmd, open.Pos), body, -1, -1), nil
 }
 
-func (p *parser) parseIf() (*Tree, error) {
+func (p *parser) parseIf() (int, error) {
 	ifTok := p.current()
 	if err := p.expect(tokenIf); err != nil {
-		return nil, err
+		return -1, err
 	}
 	if p.current().Kind == tokenNot {
 		notTok := p.current()
@@ -409,145 +489,138 @@ func (p *parser) parseIf() (*Tree, error) {
 		p.skipNewlines()
 		child, err := p.parseAndOr()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		node := cloneTree(notTok.Tree)
-		node.Type = tokenNot
-		node.Pos = ifTok.Pos
-		return Mung1(node, child), nil
+		node := p.syntaxNode(notTok)
+		p.offsets[node] = ifTok.Pos.Offset
+		return p.attach(node, child, -1, -1), nil
 	}
 	cond, err := p.parseParenCommand()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	p.skipNewlines()
 	body, err := p.parseAndOr()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := &Tree{Type: tokenIf, Pos: ifTok.Pos}
-	return Mung2(node, cond, body), nil
+	return p.attach(p.newNode(tokenIf, ifTok.Pos), cond, body, -1), nil
 }
 
-func (p *parser) parseFor() (*Tree, error) {
+func (p *parser) parseFor() (int, error) {
 	forTok := p.current()
 	if err := p.expect(tokenFor); err != nil {
-		return nil, err
+		return -1, err
 	}
 	if err := p.expect('('); err != nil {
-		return nil, err
+		return -1, err
 	}
 	name, err := p.parseWord()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	var words *Tree
+	words := -1
 	if p.current().Kind == tokenIn {
 		p.next()
 		words, err = p.parseWords(')')
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		if words == nil {
-			words = NewUnaryNode(tokenParen, nil)
-			words.Pos = p.current().Pos
+		if words < 0 {
+			words = p.newNode(tokenParen, p.current().Pos)
 		}
 	}
 	if err := p.expect(')'); err != nil {
-		return nil, err
+		return -1, err
 	}
 	p.skipNewlines()
 	body, err := p.parseAndOr()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := &Tree{Type: tokenFor, Pos: forTok.Pos}
-	return Mung3(node, name, words, body), nil
+	return p.attach(p.newNode(tokenFor, forTok.Pos), name, words, body), nil
 }
 
-func (p *parser) parseWhile() (*Tree, error) {
+func (p *parser) parseWhile() (int, error) {
 	whileTok := p.current()
 	if err := p.expect(tokenWhile); err != nil {
-		return nil, err
+		return -1, err
 	}
 	cond, err := p.parseParenCommand()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	p.skipNewlines()
 	body, err := p.parseAndOr()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := &Tree{Type: tokenWhile, Pos: whileTok.Pos}
-	return Mung2(node, cond, body), nil
+	return p.attach(p.newNode(tokenWhile, whileTok.Pos), cond, body, -1), nil
 }
 
-func (p *parser) parseSwitch() (*Tree, error) {
+func (p *parser) parseSwitch() (int, error) {
 	switchTok := p.current()
 	if err := p.expect(tokenSwitch); err != nil {
-		return nil, err
+		return -1, err
 	}
 	arg, err := p.parseWord()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	p.skipNewlines()
 	body, err := p.parseBrace()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := &Tree{Type: tokenSwitch, Pos: switchTok.Pos}
-	return Mung2(node, arg, body), nil
+	return p.attach(p.newNode(tokenSwitch, switchTok.Pos), arg, body, -1), nil
 }
 
-func (p *parser) parseFn() (*Tree, error) {
+func (p *parser) parseFn() (int, error) {
 	fnTok := p.current()
 	if err := p.expect(tokenFn); err != nil {
-		return nil, err
+		return -1, err
 	}
 	names, err := p.parseWords('{', '\n', ';', '&', tokenEOF, '}')
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	if names == nil {
-		return nil, p.unexpected("fn requires a name")
+	if names < 0 {
+		return -1, p.unexpected("fn requires a name")
 	}
-	var body *Tree
+	body := -1
 	if p.current().Kind == '{' {
 		body, err = p.parseBrace()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
 	}
-	node := &Tree{Type: tokenFn, Pos: fnTok.Pos}
-	if body != nil {
-		return Mung2(node, names, body), nil
+	node := p.newNode(tokenFn, fnTok.Pos)
+	if body >= 0 {
+		return p.attach(node, names, body, -1), nil
 	}
-	return Mung1(node, names), nil
+	return p.attach(node, names, -1, -1), nil
 }
 
-func (p *parser) parseTwiddle() (*Tree, error) {
+func (p *parser) parseTwiddle() (int, error) {
 	twiddleTok := p.current()
 	if err := p.expect(tokenTwiddle); err != nil {
-		return nil, err
+		return -1, err
 	}
 	subject, err := p.parseWord()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	patterns, err := p.parseWords(';', '&', '\n', ')', '}', tokenEOF)
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	node := &Tree{Type: tokenTwiddle, Pos: twiddleTok.Pos}
-	return Mung2(node, subject, patterns), nil
+	return p.attach(p.newNode(tokenTwiddle, twiddleTok.Pos), subject, patterns, -1), nil
 }
 
-func (p *parser) parseSimple() (*Tree, error) {
+func (p *parser) parseSimple() (int, error) {
 	first, err := p.parseFirst()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	simple := first
 	for {
@@ -556,116 +629,111 @@ func (p *parser) parseSimple() (*Tree, error) {
 			if p.current().Kind == tokenRedir && p.nextKind() == '{' {
 				word, err := p.parseWord()
 				if err != nil {
-					return nil, err
+					return -1, err
 				}
-				simple = NewBinaryNode(tokenArgList, simple, word)
+				simple = p.combine(tokenArgList, Position{}, simple, word, -1)
 				continue
 			}
 			redir, err := p.parseRedir()
 			if err != nil {
-				return nil, err
+				return -1, err
 			}
-			simple = NewBinaryNode(tokenArgList, simple, redir)
+			simple = p.combine(tokenArgList, Position{}, simple, redir, -1)
 		default:
 			if !p.canStartWord() {
-				return SimpleMung(simple), nil
+				return p.simpleNode(simple), nil
 			}
 			word, err := p.parseWord()
 			if err != nil {
-				return nil, err
+				return -1, err
 			}
-			simple = NewBinaryNode(tokenArgList, simple, word)
+			simple = p.combine(tokenArgList, Position{}, simple, word, -1)
 		}
 	}
 }
 
-func (p *parser) parsePrefixRedir() (*Tree, error) {
+func (p *parser) parsePrefixRedir() (int, error) {
 	redir, err := p.parseRedir()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	var child *Tree
+	child := -1
 	if !p.isCommandBoundary(p.current().Kind) {
 		child, err = p.parsePrefixed()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
 	}
-	return Mung2(redir, redir.Child[0], child), nil
+	return p.attach(redir, p.nodes[redir].Child[0], child, -1), nil
 }
 
-func (p *parser) parseEpilog() (*Tree, error) {
-	var epilog *Tree
+func (p *parser) parseEpilog() (int, error) {
+	epilog := -1
 	for p.current().Kind == tokenRedir || p.current().Kind == tokenDup {
 		redir, err := p.parseRedir()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		epilog = Mung2(redir, redir.Child[0], epilog)
+		epilog = p.attach(redir, p.nodes[redir].Child[0], epilog, -1)
 	}
 	return epilog, nil
 }
 
-func (p *parser) parseRedir() (*Tree, error) {
+func (p *parser) parseRedir() (int, error) {
 	tok := p.current()
 	if tok.Kind != tokenRedir && tok.Kind != tokenDup {
-		return nil, p.unexpected("expected redirection")
+		return -1, p.unexpected("expected redirection")
 	}
-	node := cloneTree(tok.Tree)
-	node.Pos = tok.Pos
+	node := p.syntaxNode(tok)
 	p.next()
 	if tok.Kind == tokenDup {
 		return node, nil
 	}
 	word, err := p.parseWord()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
-	return Mung1(node, word), nil
+	return p.attach(node, word, -1, -1), nil
 }
 
-func (p *parser) parseFirst() (*Tree, error) {
+func (p *parser) parseFirst() (int, error) {
 	left, err := p.parseComWord()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	for p.current().Kind == '^' {
 		op := p.current()
 		p.next()
 		right, err := p.parseWordAtom()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		left = NewBinaryNode('^', left, right)
-		left.Pos = op.Pos
+		left = p.combine('^', op.Pos, left, right, -1)
 	}
 	return left, nil
 }
 
-func (p *parser) parseWord() (*Tree, error) {
+func (p *parser) parseWord() (int, error) {
 	left, err := p.parseWordAtom()
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	for p.current().Kind == '^' {
 		op := p.current()
 		p.next()
 		right, err := p.parseWordAtom()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		left = NewBinaryNode('^', left, right)
-		left.Pos = op.Pos
+		left = p.combine('^', op.Pos, left, right, -1)
 	}
 	return left, nil
 }
 
-func (p *parser) parseWordAtom() (*Tree, error) {
+func (p *parser) parseWordAtom() (int, error) {
 	switch p.current().Kind {
 	case tokenFor, tokenIn, tokenWhile, tokenIf, tokenNot, tokenTwiddle, tokenBang, tokenSubshell, tokenSwitch, tokenFn:
-		word := cloneTree(p.current().Tree)
-		word.Type = tokenWord
-		word.Pos = p.current().Pos
+		word := p.wordNode(p.current())
 		p.next()
 		return word, nil
 	default:
@@ -673,51 +741,46 @@ func (p *parser) parseWordAtom() (*Tree, error) {
 	}
 }
 
-func (p *parser) parseComWord() (*Tree, error) {
+func (p *parser) parseComWord() (int, error) {
 	switch p.current().Kind {
 	case '$':
 		dollar := p.current()
 		p.next()
 		name, err := p.parseWordAtom()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
 		if p.current().Kind == tokenSub {
 			subTok := p.current()
 			p.next()
 			sub, err := p.parseWords(')')
 			if err != nil {
-				return nil, err
+				return -1, err
 			}
 			if err := p.expect(')'); err != nil {
-				return nil, err
+				return -1, err
 			}
-			node := &Tree{Type: tokenSub, Pos: subTok.Pos}
-			return Mung2(node, name, sub), nil
+			return p.attach(p.newNode(tokenSub, subTok.Pos), name, sub, -1), nil
 		}
-		node := &Tree{Type: '$', Pos: dollar.Pos}
-		return Mung1(node, name), nil
+		return p.attach(p.newNode('$', dollar.Pos), name, -1, -1), nil
 	case '"':
 		quoteTok := p.current()
 		p.next()
 		word, err := p.parseWordAtom()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		node := &Tree{Type: '"', Pos: quoteTok.Pos}
-		return Mung1(node, word), nil
+		return p.attach(p.newNode('"', quoteTok.Pos), word, -1, -1), nil
 	case tokenCount:
 		countTok := p.current()
 		p.next()
 		word, err := p.parseWordAtom()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		node := &Tree{Type: tokenCount, Pos: countTok.Pos}
-		return Mung1(node, word), nil
+		return p.attach(p.newNode(tokenCount, countTok.Pos), word, -1, -1), nil
 	case tokenWord:
-		word := cloneTree(p.current().Tree)
-		word.Pos = p.current().Pos
+		word := p.wordNode(p.current())
 		p.next()
 		return word, nil
 	case '`':
@@ -725,50 +788,71 @@ func (p *parser) parseComWord() (*Tree, error) {
 		p.next()
 		brace, err := p.parseBrace()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		node := &Tree{Type: '`', Pos: backquote.Pos}
-		return Mung1(node, brace), nil
+		return p.attach(p.newNode('`', backquote.Pos), brace, -1, -1), nil
 	case '(':
 		open := p.current()
 		p.next()
 		words, err := p.parseWords(')')
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
 		if err := p.expect(')'); err != nil {
-			return nil, err
+			return -1, err
 		}
-		node := NewUnaryNode(tokenParen, words)
-		node.Pos = open.Pos
-		return node, nil
+		return p.attach(p.newNode(tokenParen, open.Pos), words, -1, -1), nil
 	case tokenRedir:
-		redir := cloneTree(p.current().Tree)
-		redir.Pos = p.current().Pos
+		redir := p.syntaxNode(p.current())
 		p.next()
 		brace, err := p.parseBrace()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		redir.Type = tokenPipeFD
-		return Mung1(redir, brace), nil
+		p.nodes[redir].Type = tokenPipeFD
+		return p.attach(redir, brace, -1, -1), nil
 	}
-	return nil, p.unexpected("expected word")
+	return -1, p.unexpected("expected word")
 }
 
-func (p *parser) parseWords(stops ...NodeType) (*Tree, error) {
-	var words *Tree
+func (p *parser) parseWords(stops ...NodeType) (int, error) {
+	words := -1
 	for !containsToken(stops, p.current().Kind) && p.current().Kind != tokenEOF {
 		if !p.canStartWord() {
 			break
 		}
 		word, err := p.parseWord()
 		if err != nil {
-			return nil, err
+			return -1, err
 		}
-		words = NewBinaryNode(tokenWords, words, word)
+		words = p.combine(tokenWords, Position{}, words, word, -1)
 	}
 	return words, nil
+}
+
+func (p *parser) simpleNode(list int) int {
+	root := p.attach(p.newNode(tokenSimple, Position{}), list, -1, -1)
+	for u := list; u >= 0 && p.nodes[u].Type == tokenArgList; u = p.nodes[u].Child[0] {
+		tail := p.nodes[u].Child[1]
+		if tail >= 0 && (p.nodes[tail].Type == tokenDup || p.nodes[tail].Type == tokenRedir) {
+			p.nodes[tail].Child[1] = root
+			root = tail
+			p.nodes[u].Child[1] = -1
+		}
+	}
+	return root
+}
+
+func (p *parser) combineEpilog(comp, epi int) int {
+	if epi < 0 {
+		return comp
+	}
+	node := epi
+	for p.nodes[node].Child[1] >= 0 {
+		node = p.nodes[node].Child[1]
+	}
+	p.nodes[node].Child[1] = comp
+	return epi
 }
 
 func (p *parser) canStartFirst() bool {

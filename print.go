@@ -5,14 +5,18 @@ import (
 	"strings"
 )
 
-// FormatTree returns a readable string representation of an AST.
-func FormatTree(t *Tree) string {
+// FormatTree returns a readable string representation of an AST root.
+func FormatTree(prog *Program, root int) string {
 	var b strings.Builder
-	writeTree(&b, t)
+	writeTree(&b, prog, root)
 	return b.String()
 }
 
-func writeTree(b *strings.Builder, t *Tree) {
+func writeTree(b *strings.Builder, prog *Program, id int) {
+	if prog == nil || id < 0 {
+		return
+	}
+	t := prog.Node(id)
 	if t == nil {
 		return
 	}
@@ -23,123 +27,128 @@ func writeTree(b *strings.Builder, t *Tree) {
 		b.WriteString(strconv.Itoa(int(t.Type)))
 	case '$':
 		b.WriteByte('$')
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case '"':
 		b.WriteString("$\"")
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case '&':
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte('&')
 	case '^':
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte('^')
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	case '`':
 		b.WriteByte('`')
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case tokenAndAnd:
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteString(" && ")
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	case tokenBang:
 		b.WriteString("! ")
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case tokenBrace:
 		b.WriteByte('{')
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte('}')
 	case tokenCount:
 		b.WriteString("$#")
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case tokenFn:
 		b.WriteString("fn ")
-		writeTree(b, c0)
-		if c1 != nil {
+		writeTree(b, prog, c0)
+		if c1 >= 0 {
 			b.WriteByte(' ')
-			writeTree(b, c1)
+			writeTree(b, prog, c1)
 		}
 	case tokenIf:
 		b.WriteString("if")
-		writeTree(b, c0)
-		writeTree(b, c1)
+		writeTree(b, prog, c0)
+		writeTree(b, prog, c1)
 	case tokenNot:
 		b.WriteString("if not ")
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case tokenOrOr:
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteString(" || ")
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	case tokenPCmd, tokenParen:
 		b.WriteByte('(')
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte(')')
 	case tokenSub:
 		b.WriteByte('$')
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte('(')
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 		b.WriteByte(')')
 	case tokenSimple:
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case tokenSubshell:
 		b.WriteString("@ ")
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 	case tokenSwitch:
 		b.WriteString("switch ")
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte(' ')
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	case tokenTwiddle:
 		b.WriteString("~ ")
-		writeTree(b, c0)
-		if c1 != nil {
+		writeTree(b, prog, c0)
+		if c1 >= 0 {
 			b.WriteByte(' ')
-			writeTree(b, c1)
+			writeTree(b, prog, c1)
 		}
 	case tokenWhile:
 		b.WriteString("while ")
-		writeTree(b, c0)
-		writeTree(b, c1)
+		writeTree(b, prog, c0)
+		writeTree(b, prog, c1)
 	case tokenArgList:
-		if c0 == nil {
-			writeTree(b, c1)
-		} else if c1 == nil {
-			writeTree(b, c0)
+		if c0 < 0 {
+			writeTree(b, prog, c1)
+		} else if c1 < 0 {
+			writeTree(b, prog, c0)
 		} else {
-			writeTree(b, c0)
+			writeTree(b, prog, c0)
 			b.WriteByte(' ')
-			writeTree(b, c1)
+			writeTree(b, prog, c1)
 		}
 	case ';':
-		if c0 != nil {
-			writeTree(b, c0)
-			if c1 != nil {
+		if c0 >= 0 {
+			writeTree(b, prog, c0)
+			if c1 >= 0 {
 				b.WriteByte('\n')
-				writeTree(b, c1)
+				writeTree(b, prog, c1)
 			}
 		} else {
-			writeTree(b, c1)
+			writeTree(b, prog, c1)
 		}
 	case tokenWords:
-		if c0 != nil {
-			writeTree(b, c0)
+		if c0 >= 0 {
+			writeTree(b, prog, c0)
 			b.WriteByte(' ')
 		}
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	case tokenFor:
 		b.WriteString("for(")
-		writeTree(b, c0)
-		if c1 != nil {
+		writeTree(b, prog, c0)
+		if c1 >= 0 {
 			b.WriteString(" in ")
-			writeTree(b, c1)
+			writeTree(b, prog, c1)
 		}
 		b.WriteByte(')')
-		writeTree(b, c2)
+		writeTree(b, prog, c2)
 	case tokenWord:
-		if t.Quoted {
-			b.WriteString(rcQuote(t.Str))
+		tok := prog.Token(t.Tok)
+		if tok == nil {
+			b.WriteString("bad word")
+			return
+		}
+		if tok.Quoted {
+			b.WriteString(rcQuote(tok.Text))
 		} else {
-			b.WriteString(deglobString(t.Str))
+			b.WriteString(tok.Text)
 		}
 	case tokenDup:
 		b.WriteString(">[")
@@ -149,7 +158,7 @@ func writeTree(b *strings.Builder, t *Tree) {
 			b.WriteString(strconv.Itoa(t.FD0))
 		}
 		b.WriteByte(']')
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	case tokenPipeFD, tokenRedir:
 		switch t.RType {
 		case redirHere:
@@ -176,21 +185,21 @@ func writeTree(b *strings.Builder, t *Tree) {
 				b.WriteByte(']')
 			}
 		}
-		writeTree(b, c0)
-		if c1 != nil {
+		writeTree(b, prog, c0)
+		if c1 >= 0 {
 			b.WriteByte(' ')
-			writeTree(b, c1)
+			writeTree(b, prog, c1)
 		}
 	case '=':
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte('=')
-		writeTree(b, c1)
-		if c2 != nil {
+		writeTree(b, prog, c1)
+		if c2 >= 0 {
 			b.WriteByte(' ')
-			writeTree(b, c2)
+			writeTree(b, prog, c2)
 		}
 	case tokenPipe:
-		writeTree(b, c0)
+		writeTree(b, prog, c0)
 		b.WriteByte('|')
 		if t.FD1 == 0 {
 			if t.FD0 != 1 {
@@ -205,7 +214,7 @@ func writeTree(b *strings.Builder, t *Tree) {
 			b.WriteString(strconv.Itoa(t.FD1))
 			b.WriteByte(']')
 		}
-		writeTree(b, c1)
+		writeTree(b, prog, c1)
 	}
 }
 

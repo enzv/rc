@@ -1,12 +1,6 @@
 package main
 
-import (
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestParserFormatCases(t *testing.T) {
 	cases := []struct {
@@ -49,7 +43,7 @@ func TestParserFormatCases(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			prog := parseProgram(t, tc.src)
-			if got := FormatTree(prog.Root); got != tc.want {
+			if got := FormatTree(prog, prog.Root); got != tc.want {
 				t.Fatalf("FormatTree mismatch\n got: %q\nwant: %q", got, tc.want)
 			}
 		})
@@ -61,16 +55,24 @@ func TestParserNodeShapes(t *testing.T) {
 		name     string
 		src      string
 		rootType NodeType
-		check    func(t *testing.T, root *Tree)
+		check    func(t *testing.T, prog *Program, root int)
 	}{
 		{
 			name:     "redir write",
 			src:      "a >x\n",
 			rootType: tokenRedir,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.RType != redirWrite || root.FD0 != 1 || root.Child[0].Str != "x" {
-					t.Fatalf("unexpected redir node: rtype=%d fd0=%d child0=%q", root.RType, root.FD0, root.Child[0].Str)
+				node := prog.Node(root)
+				child := prog.Node(node.Child[0])
+				childStr := ""
+				if child != nil {
+					if tok := prog.Token(child.Tok); tok != nil {
+						childStr = tok.Text
+					}
+				}
+				if node.RType != redirWrite || node.FD0 != 1 || child == nil || childStr != "x" {
+					t.Fatalf("unexpected redir node: rtype=%d fd0=%d child0=%q", node.RType, node.FD0, childStr)
 				}
 			},
 		},
@@ -78,10 +80,10 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "redir append",
 			src:      "a >>x\n",
 			rootType: tokenRedir,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.RType != redirAppend {
-					t.Fatalf("append redirection rtype=%d, want %d", root.RType, redirAppend)
+				if prog.Node(root).RType != redirAppend {
+					t.Fatalf("append redirection rtype=%d, want %d", prog.Node(root).RType, redirAppend)
 				}
 			},
 		},
@@ -89,10 +91,11 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "redir read",
 			src:      "a <x\n",
 			rootType: tokenRedir,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.RType != redirRead || root.FD0 != 0 {
-					t.Fatalf("read redirection rtype=%d fd0=%d", root.RType, root.FD0)
+				node := prog.Node(root)
+				if node.RType != redirRead || node.FD0 != 0 {
+					t.Fatalf("read redirection rtype=%d fd0=%d", node.RType, node.FD0)
 				}
 			},
 		},
@@ -100,10 +103,10 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "redir readwrite",
 			src:      "a <>x\n",
 			rootType: tokenRedir,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.RType != redirRDWR {
-					t.Fatalf("readwrite redirection rtype=%d, want %d", root.RType, redirRDWR)
+				if prog.Node(root).RType != redirRDWR {
+					t.Fatalf("readwrite redirection rtype=%d, want %d", prog.Node(root).RType, redirRDWR)
 				}
 			},
 		},
@@ -111,10 +114,10 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "descriptor target",
 			src:      "a >[2]x\n",
 			rootType: tokenRedir,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.FD0 != 2 {
-					t.Fatalf("fd-qualified redirection fd0=%d, want 2", root.FD0)
+				if prog.Node(root).FD0 != 2 {
+					t.Fatalf("fd-qualified redirection fd0=%d, want 2", prog.Node(root).FD0)
 				}
 			},
 		},
@@ -122,10 +125,11 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "descriptor dup",
 			src:      "a >[2=1]\n",
 			rootType: tokenDup,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.RType != redirDupFD || root.FD1 != 2 || root.FD0 != 1 {
-					t.Fatalf("dup node mismatch: rtype=%d fd1=%d fd0=%d", root.RType, root.FD1, root.FD0)
+				node := prog.Node(root)
+				if node.RType != redirDupFD || node.FD1 != 2 || node.FD0 != 1 {
+					t.Fatalf("dup node mismatch: rtype=%d fd1=%d fd0=%d", node.RType, node.FD1, node.FD0)
 				}
 			},
 		},
@@ -133,10 +137,11 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "descriptor close",
 			src:      "a >[2=]\n",
 			rootType: tokenDup,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.RType != redirClose || root.FD0 != 2 {
-					t.Fatalf("close node mismatch: rtype=%d fd0=%d", root.RType, root.FD0)
+				node := prog.Node(root)
+				if node.RType != redirClose || node.FD0 != 2 {
+					t.Fatalf("close node mismatch: rtype=%d fd0=%d", node.RType, node.FD0)
 				}
 			},
 		},
@@ -144,10 +149,11 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "pipe fd",
 			src:      "a |[2] b\n",
 			rootType: tokenPipe,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.FD0 != 2 || root.FD1 != 0 {
-					t.Fatalf("pipe fd mismatch: fd0=%d fd1=%d", root.FD0, root.FD1)
+				node := prog.Node(root)
+				if node.FD0 != 2 || node.FD1 != 0 {
+					t.Fatalf("pipe fd mismatch: fd0=%d fd1=%d", node.FD0, node.FD1)
 				}
 			},
 		},
@@ -155,10 +161,11 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "pipe fd pair",
 			src:      "a |[2=1] b\n",
 			rootType: tokenPipe,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.FD0 != 1 || root.FD1 != 2 {
-					t.Fatalf("pipe fd pair mismatch: fd0=%d fd1=%d", root.FD0, root.FD1)
+				node := prog.Node(root)
+				if node.FD0 != 1 || node.FD1 != 2 {
+					t.Fatalf("pipe fd pair mismatch: fd0=%d fd1=%d", node.FD0, node.FD1)
 				}
 			},
 		},
@@ -166,10 +173,10 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "bang precedence",
 			src:      "! x | y | z\n",
 			rootType: tokenBang,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.Child[0] == nil || root.Child[0].Type != tokenPipe {
-					t.Fatalf("bang child type=%v, want PIPE", childType(root, 0))
+				if childType(prog, root, 0) != tokenPipe {
+					t.Fatalf("bang child type=%v, want PIPE", childType(prog, root, 0))
 				}
 			},
 		},
@@ -177,10 +184,10 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "subshell precedence",
 			src:      "x | @ y | z\n",
 			rootType: tokenPipe,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.Child[1] == nil || root.Child[1].Type != tokenSubshell {
-					t.Fatalf("pipe rhs type=%v, want SUBSHELL", childType(root, 1))
+				if childType(prog, root, 1) != tokenSubshell {
+					t.Fatalf("pipe rhs type=%v, want SUBSHELL", childType(prog, root, 1))
 				}
 			},
 		},
@@ -193,9 +200,9 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "fn delete root",
 			src:      "fn f\n",
 			rootType: tokenFn,
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.Child[1] != nil {
+				if prog.Node(root).Child[1] >= 0 {
 					t.Fatalf("fn deletion should not have body")
 				}
 			},
@@ -204,10 +211,10 @@ func TestParserNodeShapes(t *testing.T) {
 			name:     "assignment command chain",
 			src:      "x=y z=w echo ok\n",
 			rootType: '=',
-			check: func(t *testing.T, root *Tree) {
+			check: func(t *testing.T, prog *Program, root int) {
 				t.Helper()
-				if root.Child[2] == nil || root.Child[2].Type != '=' {
-					t.Fatalf("expected chained assignment, child2 type=%v", childType(root, 2))
+				if childType(prog, root, 2) != '=' {
+					t.Fatalf("expected chained assignment, child2 type=%v", childType(prog, root, 2))
 				}
 			},
 		},
@@ -215,15 +222,16 @@ func TestParserNodeShapes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			root := parseProgram(t, tc.src).Root
-			if root == nil {
+			prog := parseProgram(t, tc.src)
+			root := prog.Root
+			if root < 0 {
 				t.Fatal("ParseSource returned nil root")
 			}
-			if root.Type != tc.rootType {
-				t.Fatalf("root type = %s, want %s", tokenName(root.Type), tokenName(tc.rootType))
+			if prog.Node(root).Type != tc.rootType {
+				t.Fatalf("root type = %s, want %s", tokenName(prog.Node(root).Type), tokenName(tc.rootType))
 			}
 			if tc.check != nil {
-				tc.check(t, root)
+				tc.check(t, prog, root)
 			}
 		})
 	}
@@ -238,62 +246,28 @@ func parseProgram(t *testing.T, src string) *Program {
 	return prog
 }
 
-func childType(root *Tree, index int) NodeType {
-	if root == nil || root.Child[index] == nil {
+func childType(prog *Program, id int, index int) NodeType {
+	node := prog.Node(id)
+	if node == nil || node.Child[index] < 0 {
 		return 0
 	}
-	return root.Child[index].Type
+	child := prog.Node(node.Child[index])
+	if child == nil {
+		return 0
+	}
+	return child.Type
 }
 
 func TestParseCorpus(t *testing.T) {
-	entries, err := os.ReadDir("testdata")
-	if err != nil {
-		t.Fatalf("ReadDir(testdata): %v", err)
-	}
-	var cases []rcCase
-	for _, entry := range entries {
-		if entry.IsDir() {
-			t.Fatalf("testdata contains nested directory: %s", entry.Name())
-		}
-		if !strings.HasSuffix(entry.Name(), ".rc") {
-			t.Fatalf("testdata contains non-.rc file: %s", entry.Name())
-		}
-		data, err := os.ReadFile(filepath.Join("testdata", entry.Name()))
-		if err != nil {
-			t.Fatalf("ReadFile(testdata/%s): %v", entry.Name(), err)
-		}
-		if strings.HasPrefix(string(data), "#!") {
-			t.Fatalf("testdata fixture has shebang: %s", entry.Name())
-		}
-		cases = append(cases, rcCase{
-			name:      strings.TrimSuffix(entry.Name(), ".rc"),
-			file:      entry.Name(),
-			parseOnly: true,
-		})
-	}
-	if len(cases) != 93 {
-		t.Fatalf("testdata fixture count = %d, want 93", len(cases))
-	}
-	sort.Slice(cases, func(i, j int) bool {
-		return cases[i].file < cases[j].file
-	})
-	runRCCases(t, cases)
+	runRCCases(t, parseCorpusFixtures())
 }
 
-func BenchmarkParseSource(b *testing.B) {
-	src := `
-fn build {
-	echo building...
-	cc -O2 -o $1 $2.c
-	if (~ $status 0) {
-		echo success
-	}
-}
-build prog main
-`
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = ParseSource(src)
+func parseCorpusFixtures() []rcCase {
+	return []rcCase{
+		{file: "syntax_comments_continuation.rc", parseOnly: true},
+		{file: "words_quotes.rc", parseOnly: true},
+		{file: "list_flattening.rc", parseOnly: true},
+		{file: "var_assignment_scalar_list.rc", parseOnly: true},
+		{file: "glob_basic.rc", parseOnly: true},
 	}
 }

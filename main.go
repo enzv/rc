@@ -275,8 +275,8 @@ func main() {
 			printMainError(err)
 			os.Exit(1)
 		}
-		env.vars["rcname"] = []string{defaultCommandName}
-		env.vars["argv0"] = []string{os.Args[0]}
+		env.set("rcname", []string{defaultCommandName})
+		env.set("argv0", []string{os.Args[0]})
 		if flags.ExitOnError {
 			env.flags["e"] = true
 		}
@@ -361,12 +361,12 @@ func main() {
 		printMainError(err)
 		os.Exit(1)
 	}
-	env.vars["rcname"] = []string{rcname}
-	env.vars["argv0"] = []string{os.Args[0]}
+	env.set("rcname", []string{rcname})
+	env.set("argv0", []string{os.Args[0]})
 	localizeStar := false
 	localArgs := []string(nil)
 	if !flags.HasCommand && len(flags.Args) > 0 {
-		env.vars["*"] = append([]string{rcname}, scriptArgs...)
+		env.set("*", append([]string{rcname}, scriptArgs...))
 		localizeStar = true
 		localArgs = append([]string(nil), scriptArgs...)
 	}

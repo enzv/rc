@@ -165,7 +165,7 @@ func TestRforkCleanEnvPreservesEssentials(t *testing.T) {
 
 	env.set("custom", []string{"foo"})
 	env.set("status", []string{"0"})
-	env.defineFunc("myfunc", &Tree{})
+	env.defineFunc("myfunc", &Program{}, -1)
 
 	if err := r.execRfork([]string{"E"}); err != nil {
 		t.Fatal(err)

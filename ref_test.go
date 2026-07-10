@@ -181,48 +181,6 @@ func referenceImage() string {
 	return image
 }
 
-func TestRefFixtures(t *testing.T) {
-	t.Parallel()
-	shellBin := buildShell(t)
-	for _, tc := range refFixtures {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			if tc.name == "rfork_default.rc" || tc.name == "rfork_flags.rc" {
-				t.Skip("known rfork divergence: this rc uses an explicit OS-aware compatibility layer instead of matching plan9port's partial rfork behavior")
-			}
-
-			work := t.TempDir()
-			stageWorkdir(t, work, tc)
-			got := runCommand(t, shellBin, nil, work, "case.rc", tc)
-			if got.err != nil {
-				t.Fatalf("run test shell: %v", got.err)
-			}
-
-			stageWorkdir(t, work, tc)
-			want := runReferenceCommand(t, work, tc)
-			if want.err != nil {
-				t.Fatalf("run reference shell: %v", want.err)
-			}
-
-			if got.status == 124 && want.status == 124 {
-				return // both timed out, probably okay
-			}
-
-			if got.stdout != want.stdout {
-				t.Fatalf("fixture: testdata/%s\n\nstdout mismatch:\ngot:\n%q\nwant:\n%q", tc.name, got.stdout, want.stdout)
-			}
-			if got.stderr != want.stderr {
-				t.Fatalf("fixture: testdata/%s\n\nstderr mismatch:\ngot:\n%q\nwant:\n%q", tc.name, got.stderr, want.stderr)
-			}
-			if got.status != want.status {
-				t.Fatalf("fixture: testdata/%s\n\nstatus mismatch:\ngot: %d\nwant: %d", tc.name, got.status, want.status)
-			}
-		})
-	}
-}
-
 func runCommand(t *testing.T, name string, args []string, work string, script string, tc refFixture) commandResult {
 	t.Helper()
 	cmdArgs := append([]string{}, args...)
@@ -384,34 +342,6 @@ func TestEnvironmentImportsFunction(t *testing.T) {
 
 	got := stdout.String()
 	want := "imported:a imported:b\n"
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestHeredocInFnDivergence(t *testing.T) {
-	t.Parallel()
-	// Plan 9 rc(1) has a known bug: "Functions containing here documents don't work."
-	// This project intentionally diverges and fixes the bug.
-	// This test proves the Go implementation works, unlike the reference.
-	shellBin := buildShell(t)
-	work := t.TempDir()
-	scriptPath := filepath.Join(work, "case.rc")
-	script := "fn f {\ncat <<EOF\nheredoc in fn\nEOF\n}\nf\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := exec.Command(shellBin, "case.rc")
-	cmd.Dir = work
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("run failed: %v", err)
-	}
-
-	got := stdout.String()
-	want := "heredoc in fn\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

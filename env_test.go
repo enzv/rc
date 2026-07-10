@@ -76,7 +76,11 @@ func TestExportEnv(t *testing.T) {
 		t.Fatalf("newShellEnv: %v", err)
 	}
 	e.set("myvar", []string{"a", "b"})
-	e.fns["myfn"] = &Tree{Type: tokenSimple, Child: [3]*Tree{{Type: tokenWord, Str: "echo"}}}
+	fnProg, err := ParseSource("{echo}\n")
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	e.fns["myfn"] = funcBody{prog: fnProg, root: fnProg.Root}
 
 	envStrings := e.exportEnv()
 	cases := []struct {
@@ -116,7 +120,7 @@ func TestExportEnvPrefersShellPath(t *testing.T) {
 			"PATH": {"/stale/bin:/usr/bin"},
 			"path": {"/fresh/bin", "/bin"},
 		},
-		fns:   map[string]*Tree{},
+		fns:   map[string]funcBody{},
 		jobs:  newJobState(),
 		flags: map[string]bool{},
 	}
@@ -140,7 +144,7 @@ func TestExportEnvFallsBackToImportedPATH(t *testing.T) {
 		vars: map[string][]string{
 			"PATH": {"/usr/local/bin:/usr/bin"},
 		},
-		fns:   map[string]*Tree{},
+		fns:   map[string]funcBody{},
 		jobs:  newJobState(),
 		flags: map[string]bool{},
 	}
@@ -201,7 +205,7 @@ func TestShellEnvMutationHelpers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env := &shellEnv{
 				vars:  map[string][]string{},
-				fns:   map[string]*Tree{},
+				fns:   map[string]funcBody{},
 				jobs:  newJobState(),
 				flags: map[string]bool{},
 			}
@@ -273,10 +277,10 @@ func TestImportEnv(t *testing.T) {
 			check: func(t *testing.T, env *shellEnv) {
 				t.Helper()
 				body, ok := env.lookupFunc("myfunc")
-				if !ok || body == nil {
+				if !ok || body.prog == nil || body.root < 0 {
 					t.Fatal("expected imported function")
 				}
-				if got := FormatTree(body); got != "{echo imported}" {
+				if got := FormatTree(body.prog, body.root); got != "{echo imported}" {
 					t.Fatalf("FormatTree(body) = %q, want %q", got, "{echo imported}")
 				}
 			},
@@ -288,7 +292,7 @@ func TestImportEnv(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env := &shellEnv{
 				vars:  map[string][]string{},
-				fns:   map[string]*Tree{},
+				fns:   map[string]funcBody{},
 				jobs:  newJobState(),
 				flags: map[string]bool{},
 			}
@@ -329,11 +333,11 @@ func TestVariableHelpers(t *testing.T) {
 			name: "keyword lookup",
 			check: func(t *testing.T) {
 				t.Helper()
-				if got := Klook("if"); got.Type != tokenIf || !got.IsKeyword {
-					t.Fatalf("Klook(%q) = type %s keyword=%v, want IF true", "if", tokenName(got.Type), got.IsKeyword)
+				if got := Klook("if"); got.Type != tokenIf {
+					t.Fatalf("Klook(%q) = type %s, want IF", "if", tokenName(got.Type))
 				}
-				if got := Klook("iffy"); got.Type != tokenWord || got.IsKeyword {
-					t.Fatalf("Klook(%q) = type %s keyword=%v, want WORD false", "iffy", tokenName(got.Type), got.IsKeyword)
+				if got := Klook("iffy"); got.Type != tokenWord {
+					t.Fatalf("Klook(%q) = type %s, want WORD", "iffy", tokenName(got.Type))
 				}
 			},
 		},

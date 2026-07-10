@@ -5,6 +5,32 @@ import (
 	"strings"
 )
 
+var asciiText = func() [128]string {
+	var out [128]string
+	for i := range out {
+		out[i] = string(rune(i))
+	}
+	return out
+}()
+
+var wordCharTable = func() [128]bool {
+	var out [128]bool
+	for i := range out {
+		c := byte(i)
+		out[i] = c != '\n' && c != ' ' && c != '\t' && c != '#' && c != ';' && c != '&' && c != '|' && c != '^' && c != '$' && c != '=' && c != '`' && c != '\'' && c != '{' && c != '}' && c != '(' && c != ')' && c != '<' && c != '>'
+	}
+	return out
+}()
+
+var idCharTable = func() [128]bool {
+	var out [128]bool
+	for i := range out {
+		c := byte(i)
+		out[i] = c > ' ' && c != '!' && c != '"' && c != '#' && c != '$' && c != '%' && c != '&' && c != '\'' && c != '(' && c != ')' && c != '+' && c != ',' && c != '-' && c != '.' && c != '/' && c != ':' && c != ';' && c != '<' && c != '=' && c != '>' && c != '?' && c != '@' && c != '[' && c != '\\' && c != ']' && c != '^' && c != '`' && c != '{' && c != '|' && c != '}' && c != '~'
+	}
+	return out
+}()
+
 // Position tracks the line and column number in the source text.
 type Position struct {
 	Offset int
@@ -16,8 +42,11 @@ type Position struct {
 type LexToken struct {
 	Kind   NodeType
 	Text   string
-	Tree   *Tree
+	Glob   bool
 	Quoted bool
+	RType  RedirType
+	FD0    int
+	FD1    int
 	Pos    Position
 }
 
@@ -38,7 +67,9 @@ type Lexer struct {
 // Lex scans the provided source string and returns a complete slice of tokens.
 func Lex(src string) ([]LexToken, error) {
 	lx := &Lexer{src: src, line: 1, column: 1}
-	out := make([]LexToken, 0, len(src)/8+2)
+	// Shell source tends to be token-dense, so reserve more aggressively than
+	// the original heuristic to avoid repeated slice growth on large inputs.
+	out := make([]LexToken, 0, len(src)/7+2)
 	for {
 		tok, err := lx.nextToken()
 		if err != nil {
@@ -52,11 +83,11 @@ func Lex(src string) ([]LexToken, error) {
 }
 
 func wordchr(c int) bool {
-	return c != tokenEOF && !strings.ContainsRune("\n \t#;&|^$=`'{}()<>", rune(c))
+	return c >= 0 && c < len(wordCharTable) && wordCharTable[c]
 }
 
 func idchr(c int) bool {
-	return c > ' ' && !strings.ContainsRune("!\"#$%&'()+,-./:;<=>?@[\\]^`{|}~", rune(c))
+	return c >= 0 && c < len(idCharTable) && idCharTable[c]
 }
 
 func (lx *Lexer) nextToken() (LexToken, error) {
@@ -95,7 +126,7 @@ func (lx *Lexer) nextToken() (LexToken, error) {
 			lx.skipNL()
 			return LexToken{Kind: tokenAndAnd, Text: "&&", Pos: pos}, nil
 		}
-		return LexToken{Kind: '&', Text: "&", Pos: pos}, nil
+		return LexToken{Kind: '&', Text: asciiText['&'], Pos: pos}, nil
 	case '|':
 		lx.lastDol = false
 		if lx.nextIs('|') {
@@ -114,13 +145,11 @@ func (lx *Lexer) nextToken() (LexToken, error) {
 		if err != nil {
 			return LexToken{}, err
 		}
-		t := Token(text, tokenWord)
-		t.Quoted = true
-		return LexToken{Kind: tokenWord, Text: text, Tree: t, Quoted: true, Pos: pos}, nil
+		return LexToken{Kind: tokenWord, Text: text, Quoted: true, Pos: pos}, nil
 	case '`':
 		lx.lastDol = false
 		lx.bqPending = true
-		return LexToken{Kind: '`', Text: "`", Pos: pos}, nil
+		return LexToken{Kind: '`', Text: asciiText['`'], Pos: pos}, nil
 	}
 	if !wordchr(c) {
 		if c == '{' {
@@ -138,84 +167,89 @@ func (lx *Lexer) nextToken() (LexToken, error) {
 			}
 		}
 		lx.lastDol = false
-		return LexToken{Kind: NodeType(c), Text: string(rune(c)), Pos: pos}, nil
+		return LexToken{Kind: NodeType(c), Text: asciiText[c], Pos: pos}, nil
 	}
-	text := lx.scanWord(c)
+	text, glob := lx.scanWord(c)
 	lx.lastWord = true
 	lx.lastDol = false
-	t := Klook(text)
-	if t.Type != tokenWord {
+	kind, ok := keywordType(text)
+	if ok {
 		lx.lastWord = false
 	}
-	t.Quoted = false
-	return LexToken{Kind: t.Type, Text: text, Tree: t, Pos: pos}, nil
+	return LexToken{Kind: kind, Text: text, Glob: glob, Pos: pos}, nil
 }
 
 func (lx *Lexer) scanRedir(first int, pos Position) (LexToken, error) {
 	start := lx.pos - 1
-	t := &Tree{}
+	kind := tokenRedir
+	rtype := RedirType(0)
+	fd0 := 0
+	fd1 := 0
 	switch first {
 	case '|':
-		t.Type = tokenPipe
-		t.FD0 = 1
-		t.FD1 = 0
+		kind = tokenPipe
+		fd0 = 1
 	case '>':
-		t.Type = tokenRedir
 		if lx.nextIs('>') {
-			t.RType = redirAppend
+			rtype = redirAppend
 		} else {
-			t.RType = redirWrite
+			rtype = redirWrite
 		}
-		t.FD0 = 1
+		fd0 = 1
 	case '<':
-		t.Type = tokenRedir
 		if lx.nextIs('<') {
-			t.RType = redirHere
+			rtype = redirHere
 		} else if lx.nextIs('>') {
-			t.RType = redirRDWR
+			rtype = redirRDWR
 		} else {
-			t.RType = redirRead
+			rtype = redirRead
 		}
-		t.FD0 = 0
 	}
 	if lx.nextIs('[') {
+		qualFD := 0
 		c := lx.advance()
 		if c < '0' || c > '9' {
 			return LexToken{}, lx.syntaxError(pos, "redirection syntax")
 		}
-		fd0 := 0
 		for c >= '0' && c <= '9' {
-			fd0 = fd0*10 + c - '0'
+			qualFD = qualFD*10 + c - '0'
 			c = lx.advance()
 		}
-		t.FD0 = fd0
+		fd0 = qualFD
 		if c == '=' {
-			if t.Type == tokenRedir {
-				t.Type = tokenDup
+			if kind == tokenRedir {
+				kind = tokenDup
 			}
 			c = lx.advance()
 			if c >= '0' && c <= '9' {
-				t.RType = redirDupFD
-				t.FD1 = t.FD0
-				t.FD0 = 0
+				rtype = redirDupFD
+				fd1 = fd0
+				fd0 = 0
 				for c >= '0' && c <= '9' {
-					t.FD0 = t.FD0*10 + c - '0'
+					fd0 = fd0*10 + c - '0'
 					c = lx.advance()
 				}
 			} else {
-				if t.Type == tokenPipe {
+				if kind == tokenPipe {
 					return LexToken{}, lx.syntaxError(pos, "pipe syntax")
 				}
-				t.RType = redirClose
+				rtype = redirClose
 			}
 		}
-		if c != ']' || (t.Type == tokenDup && (t.RType == redirHere || t.RType == redirAppend)) {
+		if c != ']' || (kind == tokenDup && (rtype == redirHere || rtype == redirAppend)) {
 			return LexToken{}, lx.syntaxError(pos, "redirection syntax")
 		}
-	} else if t.Type == tokenPipe {
+	} else if kind == tokenPipe {
 		lx.skipNL()
 	}
-	return LexToken{Kind: t.Type, Text: lx.src[start:lx.pos], Tree: t, Pos: pos}, nil
+	return LexToken{
+		Kind:  kind,
+		Text:  lx.src[start:lx.pos],
+		RType: rtype,
+		FD0:   fd0,
+		FD1:   fd1,
+		Pos:   pos,
+	}, nil
 }
 
 func (lx *Lexer) scanQuoted() (string, error) {
@@ -253,12 +287,12 @@ func (lx *Lexer) scanQuoted() (string, error) {
 	return b.String(), nil
 }
 
-func (lx *Lexer) scanWord(first int) string {
+func (lx *Lexer) scanWord(first int) (string, bool) {
 	start := lx.pos - 1
 	hasGlob := false
 	c := first
 	for {
-		if !lx.lastDol && (c == '*' || c == '[' || c == '?' || c == int(globMark)) {
+		if !lx.lastDol && (c == '*' || c == '[' || c == '?') {
 			hasGlob = true
 		}
 		c = lx.peek()
@@ -274,22 +308,9 @@ func (lx *Lexer) scanWord(first int) string {
 	end := lx.pos
 
 	if !hasGlob {
-		return lx.src[start:end]
+		return lx.src[start:end], false
 	}
-
-	// Slow path for words with globs
-	var b strings.Builder
-	b.Grow(end - start + 4)
-	p := start
-	for p < end {
-		c := int(lx.src[p])
-		if !lx.lastDol && (c == '*' || c == '[' || c == '?' || c == int(globMark)) {
-			b.WriteByte(globMark)
-		}
-		b.WriteByte(byte(c))
-		p++
-	}
-	return b.String()
+	return lx.src[start:end], true
 }
 
 func (lx *Lexer) skipWhite() {

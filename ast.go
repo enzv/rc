@@ -3,19 +3,14 @@ package main
 type NodeType int
 type RedirType int
 
-// Tree represents a syntactic node in the rc Abstract Syntax Tree.
-type Tree struct {
-	Type       NodeType
-	RType      RedirType
-	FD0        int
-	FD1        int
-	Str        string
-	Quoted     bool
-	HereBody   string
-	HereQuoted bool
-	IsKeyword  bool
-	Pos        Position
-	Child      [3]*Tree
+// Node represents a syntactic node in the rc Abstract Syntax Tree.
+type Node struct {
+	Type  NodeType
+	RType RedirType
+	FD0   int
+	FD1   int
+	Tok   int
+	Child [3]int
 }
 
 // Code represents a block of code, containing an AST and optionally its raw source text.
@@ -27,96 +22,73 @@ type Code struct {
 
 // Program represents a complete parsed script.
 type Program struct {
-	Tokens []LexToken
-	Root   *Tree
+	Tokens   []LexToken
+	Nodes    []Node
+	Offsets  []int
+	HereDocs map[int]hereDoc
+	Root     int
 }
 
-// NewUnaryNode creates a new AST node with one child.
-func NewUnaryNode(kind NodeType, c0 *Tree) *Tree {
-	return NewTernaryNode(kind, c0, nil, nil)
-}
-
-// NewBinaryNode creates a new AST node with two children.
-func NewBinaryNode(kind NodeType, c0, c1 *Tree) *Tree {
-	return NewTernaryNode(kind, c0, c1, nil)
-}
-
-// NewTernaryNode creates a new AST node with three children.
-func NewTernaryNode(kind NodeType, c0, c1, c2 *Tree) *Tree {
-	if kind == ';' {
-		if c0 == nil {
-			return c1
-		}
-		if c1 == nil {
-			return c0
-		}
-	}
-	return &Tree{
-		Type:  kind,
-		Child: [3]*Tree{c0, c1, c2},
-	}
-}
-
-// Token creates a new terminal AST node from a string.
-func Token(str string, kind NodeType) *Tree {
-	return &Tree{Type: kind, Str: str}
-}
-
-func cloneTree(t *Tree) *Tree {
-	if t == nil {
+// Node returns the node for id, or nil if id is invalid.
+func (p *Program) Node(id int) *Node {
+	if p == nil || id < 0 || id >= len(p.Nodes) {
 		return nil
 	}
-	cp := *t
-	cp.Child = [3]*Tree{}
-	return &cp
+	return &p.Nodes[id]
 }
 
-// Mung1 is an internal helper that allocates a one-child tree efficiently.
-func Mung1(t, c0 *Tree) *Tree {
-	t.Child[0] = c0
-	return t
-}
-
-// Mung2 is an internal helper that allocates a two-child tree efficiently.
-func Mung2(t, c0, c1 *Tree) *Tree {
-	t.Child[0] = c0
-	t.Child[1] = c1
-	return t
-}
-
-// Mung3 is an internal helper that allocates a three-child tree efficiently.
-func Mung3(t, c0, c1, c2 *Tree) *Tree {
-	t.Child[0] = c0
-	t.Child[1] = c1
-	t.Child[2] = c2
-	return t
-}
-
-// EpiMung attaches an epilogue to an existing tree node.
-func EpiMung(comp, epi *Tree) *Tree {
-	if epi == nil {
-		return comp
+// Token returns the lexical token for id, or nil if invalid.
+func (p *Program) Token(id int) *LexToken {
+	if p == nil || id < 0 || id >= len(p.Tokens) {
+		return nil
 	}
-	p := epi
-	for p.Child[1] != nil {
-		p = p.Child[1]
-	}
-	p.Child[1] = comp
-	return epi
+	return &p.Tokens[id]
 }
 
-// SimpleMung ensures a tree is properly wrapped as a simple command if needed.
-func SimpleMung(t *Tree) *Tree {
-	t = NewUnaryNode(tokenSimple, t)
-	t.Str = FormatTree(t)
-	for u := t.Child[0]; u != nil && u.Type == tokenArgList; u = u.Child[0] {
-		if u.Child[1] != nil && (u.Child[1].Type == tokenDup || u.Child[1].Type == tokenRedir) {
-			u.Child[1].Child[1] = t
-			t = u.Child[1]
-			u.Child[1] = nil
-		}
+// Pos returns the source position for node id.
+func (p *Program) Pos(id int) Position {
+	if p == nil || id < 0 || id >= len(p.Offsets) || id >= len(p.Nodes) {
+		return Position{}
 	}
-	return t
+	return Position{Offset: p.Offsets[id]}
+}
+
+// Child returns the child id at index i, or -1 if the node or child is invalid.
+func (p *Program) Child(id, i int) int {
+	if p == nil || id < 0 || id >= len(p.Nodes) || i < 0 || i >= len(p.Nodes[id].Child) {
+		return -1
+	}
+	return p.Nodes[id].Child[i]
+}
+
+// AddNode appends a node and returns its id.
+func (p *Program) AddNode(node Node) int {
+	p.Nodes = append(p.Nodes, node)
+	p.Offsets = append(p.Offsets, 0)
+	return len(p.Nodes) - 1
+}
+
+// HereDoc returns the body and quoting mode for a here-doc redirection node.
+func (p *Program) HereDoc(id int) (string, bool, bool) {
+	if p == nil || p.HereDocs == nil {
+		return "", false, false
+	}
+	doc, ok := p.HereDocs[id]
+	if !ok {
+		return "", false, false
+	}
+	return doc.body, doc.quoted, true
+}
+
+// NodeType constructors for tests and small helpers.
+func WordNode(str string, quoted bool) Node {
+	_ = str
+	_ = quoted
+	return Node{Type: tokenWord, Tok: -1}
+}
+
+func SyntaxNode(kind NodeType) Node {
+	return Node{Type: kind}
 }
 
 const (

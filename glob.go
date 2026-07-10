@@ -9,16 +9,36 @@ import (
 )
 
 func hasGlob(pattern string) bool {
+	return hasGlobPattern(pattern)
+}
+
+func hasGlobPattern(pattern string) bool {
 	for i := 0; i < len(pattern); i++ {
-		if pattern[i] == globMark {
+		switch pattern[i] {
+		case globMark, '*', '?', '[':
 			return true
 		}
 	}
 	return false
 }
 
+func stripGlobMark(s string) string {
+	if !strings.ContainsRune(s, globMark) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == globMark {
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 func deglob(s string) string {
-	if !hasGlob(s) {
+	if strings.IndexByte(s, globMark) < 0 {
 		return s
 	}
 	return deglobString(s)
@@ -236,14 +256,14 @@ func joinPattern(prefix, name string) string {
 	return prefix + "/" + name
 }
 
-func expandGlobWords(words []string, cwd string) ([]string, error) {
+func expandGlobWords(words []wordValue, cwd string) ([]string, error) {
 	var out []string
 	for _, word := range words {
-		if !hasGlob(word) {
-			out = append(out, deglob(word))
+		if !word.glob {
+			out = append(out, word.text)
 			continue
 		}
-		matches, err := globPaths(word, cwd)
+		matches, err := globPaths(word.text, cwd)
 		if err != nil {
 			return nil, err
 		}
