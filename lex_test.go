@@ -131,3 +131,61 @@ func TestTokenName(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkLex(b *testing.B) {
+	src := `
+fn build {
+	echo building...
+	cc -O2 -o $1 $2.c
+	if (~ $status 0) {
+		echo success
+	}
+}
+build prog main
+`
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = Lex(src)
+	}
+}
+
+func BenchmarkPrepareSource(b *testing.B) {
+	runCorpusBenchmark(b, defaultBenchmarkCases(), func(b *testing.B, input benchmarkInput) {
+		input.prepared = preparedSource{}
+		input.tokens = nil
+		input.prog = nil
+		b.SetBytes(int64(len(input.source)))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = prepareSource(input.source)
+		}
+	})
+}
+
+func BenchmarkLexPreparedSource(b *testing.B) {
+	runCorpusBenchmark(b, defaultBenchmarkCases(), func(b *testing.B, input benchmarkInput) {
+		input.tokens = nil
+		input.prog = nil
+		b.SetBytes(int64(len(input.source)))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = Lex(input.prepared.Stripped)
+		}
+	})
+}
+
+func BenchmarkLexGlobHeavy(b *testing.B) {
+	repeat := 16
+	if benchStressEnabled() {
+		repeat = 128
+	}
+	src := strings.Repeat("echo a*b c?d [ab]e\n", repeat)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = Lex(src)
+	}
+}

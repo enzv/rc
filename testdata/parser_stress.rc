@@ -1,0 +1,407 @@
+INPUT=(alpha beta gamma delta epsilon zeta eta theta iota kappa)
+WORDS=('for' 'if' 'switch' 'fn' '~' '!' '@')
+PUNCT=('semi;colon' 'brace{}' 'paren()' 'hash#literal' 'dollar$literal')
+NEST=((m1 m2) (m3 (m4 m5)) m6)
+flags=(-x -y -z)
+name=INPUT
+root=/tmp
+
+echo pre$INPUT(1)^mid'post' $INPUT(2)^$INPUT(3) $INPUT(4)^/tail
+echo $WORDS $PUNCT $NEST
+echo $INPUT(1-2)^$INPUT(3-4)^$INPUT(5-)
+
+echo alpha \
+beta # comment after continuation
+'quoted # comment' gamma
+
+'if' 'not' echo disguised
+'for' 'in' echo disguised
+'switch' echo disguised
+
+fn outer {
+	a=one
+	b=(two three)
+	c=four
+	if(~ $a o*) {
+		switch($b(1)^:$c){
+		case two:four
+			{
+				if(! ~ $b(2) z*) {
+					@{
+						echo nested
+					}
+				}
+				if(~ $c f*) echo fallback
+				if not {
+					while() echo empty
+				}
+			}
+		case *
+			if(~ $c f*) echo fallback
+		}
+	}
+	if(~ $a x*) echo miss
+	if not echo missed
+}
+
+fn branch {
+	CODE='echo EVAL:one; if(~ alpha a*) echo EVAL:two; for(e in red blue){switch($e){case red echo EVAL:red; case blue echo EVAL:blue; case * echo EVAL:bad}}'
+	eval $CODE
+}
+
+for(item in alpha beta gamma) {
+	switch($item){
+	case alpha
+		if(~ $item a*) echo A
+	case beta
+		{
+			echo B
+			fn inner { echo inner }
+			inner call
+		}
+	case *
+		echo X
+	}
+}
+
+cmp <{ echo left } <{ echo right }
+echo >{ echo sink }
+
+cat <<EOF
+$INPUT(1)^$INPUT(2)
+EOF
+
+cat <<'EOF'
+$INPUT(1)^$INPUT(2)
+EOF
+
+x=/tmp echo $x^/*.c
+cc -$flags $stem.c
+
+A=(alpha beta gamma delta epsilon zeta)
+B=(one two three four)
+C=('for' 'if' 'switch' 'fn' '~' '!' '@')
+Q=('can''t' 'q''q' 'semi;colon' 'brace{}' 'paren()' 'hash#literal')
+N=((m1 m2) (m3 (m4 m5)) m6)
+path=/tmp
+stem=prog
+
+echo pre$A(1)^mid'post' $B(2)^$B(3) $path^/$stem.c
+echo $C $Q $N
+echo alpha \
+beta # comment after continuation
+'quoted # comment' gamma
+
+'if' 'not' echo disguised
+'for' 'in' echo disguised
+'switch' echo disguised
+'fn' 'x' echo disguised
+
+fn nest {
+	x=one
+	y=(two three)
+	z=four
+	if(~ $x o*) {
+		switch($y(1)^$z){
+		case twofour
+			{
+				if(! ~ $y(2) z*) {
+					@{
+						@{
+							echo deep
+						}
+					}
+				}
+				if(~ $z f*) echo match
+				if not {
+					while() echo empty
+				}
+			}
+		case *
+			if(~ $x x*) echo miss
+		}
+	}
+}
+
+cmp <{ echo left } <{ echo right }
+echo >{ echo sink }
+
+cat <<EOF1 <<'EOF2'
+$A(1)^$B(2)^
+EOF1
+literal $A(2)
+EOF2
+
+! @{ echo one } && @{ echo two } || @{ echo three }
+x=/tmp echo $x^/*.c
+cc -$C $stem.c
+
+fn singularity {
+	a=(alpha beta)
+	b=(gamma delta)
+	c=(epsilon zeta)
+	d=(eta theta)
+	e=(iota kappa)
+	f=(lambda mu)
+
+	if(~ $a(1) a*) {
+		if(~ $b(1) g*) {
+			if(~ $c(1) e*) {
+				if(~ $d(1) e*) {
+					if(~ $e(1) i*) {
+						switch($a(2)^:$b(2)^:$c(2)^:$d(2)^:$e(2)^:$f(1)){
+						case beta:delta:zeta:theta:kappa:lambda
+							{
+								fn local {
+									fn inner {
+										if(~ $1 x*) echo X
+										if not echo Y
+									}
+									inner one
+									inner two
+								}
+								local start
+								local stop
+							}
+						case *
+							{
+								if(! ~ $a(2) z*) {
+									@{
+										@{
+											{
+												echo singular
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+fn weave {
+	one=alpha
+	two=beta
+	three=gamma
+	four=delta
+
+	{
+		if(~ $one a*) {
+			{
+				if(~ $two b*) {
+					{
+						if(~ $three g*) {
+							switch($four){
+							case delta
+								put WEAVE:delta
+							case *
+								put WEAVE:other
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+singularity
+weave
+
+cat <<EOF4 <<'EOF5' <<EOF6
+$A(1)^$B(1)^$C
+EOF4
+literal $A(2)^$B(2)
+EOF5
+$C $Q $N
+EOF6
+
+{ echo alpha; echo beta >[1=2]; echo gamma >[2=1] } |[2] { echo delta; echo epsilon } | echo omega
+
+if(~ $A(1) a*) \
+	{
+		switch($B(1)^:$C(1)){
+		case one:for
+			echo paired
+		case *
+			echo fallback
+		}
+	}
+
+fn quantum {
+	prefix=$1
+	outer=$2
+	inner=$3
+	leaf=$4
+
+	for(layer in q1 q2 q3) {
+		switch($layer^:$prefix){
+		case q1:alpha
+			{
+				fn qstep {
+					CODE='if(~ alpha a*) { switch(beta){case beta echo QSTEP:beta; case * echo QSTEP:other} }; if not echo QSTEP:not'
+					eval $CODE
+				}
+				qstep
+			}
+		case q2:beta
+			@{
+				echo QUANTUM:$layer:$outer:$inner:$leaf
+			}
+		case *
+			if(~ $inner i*) {
+				switch($leaf){
+				case leaf
+					echo QUANTUM:leaf
+				case *
+					echo QUANTUM:miss
+				}
+			}
+		}
+	}
+}
+
+quantum alpha outer inner leaf
+quantum beta outer inner miss
+
+fn abyss {
+	first=alpha
+	second=(beta gamma)
+	third=delta
+	fourth=epsilon
+	fifth=zeta
+
+	{
+		@{
+			{
+				@{
+					{
+						@{
+							if(~ $first a*) {
+								switch($second(1)^:$third^:$fourth){
+								case beta:delta:epsilon
+									{
+										switch($fifth){
+										case zeta
+											put ABYSS:hit
+										case *
+											put ABYSS:miss
+										}
+									}
+								case *
+									if not put ABYSS:outer
+								}
+							}
+							if(~ $first z*) put ABYSS:skip
+							if not {
+								while() {
+									if(~ $third d*) echo loop
+									if not echo loop-miss
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+fn mirror {
+	fn temp { put MIRROR:one }
+	temp
+	fn temp
+	fn temp { put MIRROR:two }
+	temp
+}
+
+abyss
+mirror
+
+cat <<EOF1 <<'EOF2'
+$A(1)^$B(1)^$C
+EOF1
+literal $A(2)^$B(2)
+EOF2
+
+cat <<EOF3
+$A(3)^$B(3)^$C
+EOF3
+
+{ echo head; echo body >[2=1] >[1=2]; echo tail } >[2=1] >/dev/null
+
+A=(alpha beta gamma delta epsilon zeta eta theta)
+B=(one two three four five six seven eight)
+C=('for' 'if' 'switch' 'fn' '~' '!' '@')
+Q=('can''t' 'q''q' 'semi;colon' 'brace{}' 'paren()' 'hash#literal' 'dollar$literal')
+N=((m1 m2) (m3 (m4 m5)) m6)
+path=/tmp
+stem=prog
+
+echo pre$A(1)^mid'post' $B(2)^$B(3) $path^/$stem.c
+echo $C $Q $N
+echo alpha \
+beta \
+gamma # comment after continuation
+'quoted # comment' delta
+
+'if' 'not' echo disguised
+'for' 'in' echo disguised
+'switch' echo disguised
+'fn' 'x' echo disguised
+
+fn nest {
+	a=one
+	b=(two three)
+	c=four
+	d=five
+	e=six
+	if(~ $a o*) {
+		switch($b(1)^:$c){
+		case two:four
+			{
+				if(! ~ $b(2) z*) {
+					@{
+						@{
+							echo deep1
+						}
+					}
+				}
+				if(~ $c f*) echo match1
+				if(~ $d f*) echo match2
+				if not {
+					while() echo empty
+				}
+			}
+		case *
+			if(~ $e s*) echo alt
+			if not echo alt-miss
+		}
+	}
+	if(~ $a x*) echo miss
+	if not echo missed
+}
+
+fn chain {
+	CODE='echo CHAIN:one; if(~ alpha a*) echo CHAIN:two; for(e in red blue green){switch($e){case red echo CHAIN:red; case blue echo CHAIN:blue; case green echo CHAIN:green; case * echo CHAIN:bad}}'
+	eval $CODE
+}
+
+cmp <{ echo left } <{ echo right }
+echo >{ echo sink }
+
+cat <<EOF
+$A(1)^$B(2)^
+EOF
+
+cat <<'EOF'
+$A(2)^$B(3)^
+EOF
+
+! @{ echo one } && @{ echo two } || @{ echo three }
+x=/tmp echo $x^/*.c
+cc -$C $stem.c
