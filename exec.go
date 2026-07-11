@@ -1339,6 +1339,11 @@ func (r *runner) execEval(args []string) error {
 		r.env.setStatus("1")
 		return err
 	}
+	savedProg := r.prog
+	r.prog = prog
+	defer func() {
+		r.prog = savedProg
+	}()
 	return r.exec(prog.Root)
 }
 
@@ -1436,6 +1441,11 @@ func (r *runner) execDot(args []string) error {
 		r.env.setStatus("1")
 		return err
 	}
+	savedProg := r.prog
+	r.prog = prog
+	defer func() {
+		r.prog = savedProg
+	}()
 	return r.exec(prog.Root)
 }
 
