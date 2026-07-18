@@ -20,6 +20,9 @@ var ErrInterrupted = errors.New("interrupted")
 type Editor struct {
 	history []string
 	skipLF  bool
+	in      *os.File
+	out     io.Writer
+	errOut  io.Writer
 }
 
 var (
@@ -43,7 +46,25 @@ const (
 
 // NewEditor initializes and returns a new Editor.
 func NewEditor() *Editor {
-	return &Editor{}
+	return NewEditorFor(os.Stdin, os.Stdout, os.Stderr)
+}
+
+// NewEditorFor initializes an Editor using explicit terminal streams.
+func NewEditorFor(in *os.File, out, errOut io.Writer) *Editor {
+	if in == nil {
+		in = os.Stdin
+	}
+	if out == nil {
+		out = os.Stdout
+	}
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	return &Editor{
+		in:     in,
+		out:    out,
+		errOut: errOut,
+	}
 }
 
 // AddHistory appends a line to the history buffer, avoiding consecutive duplicates.
@@ -59,15 +80,15 @@ func (e *Editor) AddHistory(line string) {
 
 // ReadLine puts the terminal in raw mode and reads an interactive line of input.
 func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
-	fd := int(os.Stdin.Fd())
+	fd := int(e.in.Fd())
 
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return "", err
 	}
 	defer term.Restore(fd, oldState)
-	enableBracketedPaste()
-	defer disableBracketedPaste()
+	enableBracketedPaste(e.out)
+	defer disableBracketedPaste(e.out)
 
 	var buf []rune
 	pos := 0
@@ -91,7 +112,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 			fmt.Fprintf(&out, "\x1b[%dC", cursorCol)
 		}
 
-		fmt.Print(out.String())
+		fmt.Fprint(e.out, out.String())
 		oldRows = rows
 		oldCursorRow = cursorRow
 		oldCursorCol = cursorCol
@@ -109,7 +130,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 	}
 	moveCursor := func(newPos int) {
 		rows, cursorRow, cursorCol := editorCursorLayout(prompt, buf, newPos, cols)
-		fmt.Print(editorCursorMove(oldCursorRow, oldCursorCol, cursorRow, cursorCol))
+		fmt.Fprint(e.out, editorCursorMove(oldCursorRow, oldCursorCol, cursorRow, cursorCol))
 		pos = newPos
 		oldRows = rows
 		oldCursorRow = cursorRow
@@ -117,7 +138,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 	}
 
 	for {
-		n, err := os.Stdin.Read(b)
+		n, err := e.in.Read(b)
 		if err != nil || n == 0 {
 			return "", io.EOF
 		}
@@ -164,7 +185,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 					refresh()
 				}
 			case escapePasteStart:
-				pasted, err := readBracketedPaste(os.Stdin)
+				pasted, err := readBracketedPaste(e.in)
 				if err != nil {
 					return "", io.EOF
 				}
@@ -177,7 +198,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 				text := string(pasted)
 				combined := string(buf[:pos]) + text + string(buf[pos:])
 				if shouldSubmitPastedText(text) {
-					fmt.Print(displayPastedText(text))
+					fmt.Fprint(e.out, displayPastedText(text))
 					return trimTrailingSubmittedNewline(combined), nil
 				}
 
@@ -203,7 +224,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 		case 10, 13: // LF or CR
 			e.noteLineEnding(c)
 			moveCursor(len(buf))
-			fmt.Print("\r\n")
+			fmt.Fprint(e.out, "\r\n")
 			return string(buf), nil
 		case 127, 8: // Backspace
 			if pos > 0 {
@@ -216,7 +237,7 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 		case 5: // Ctrl-E
 			moveCursor(len(buf))
 		case 12: // Ctrl-L
-			fmt.Print("\x1b[H\x1b[2J")
+			fmt.Fprint(e.out, "\x1b[H\x1b[2J")
 			refresh()
 		case 21: // Ctrl-U
 			buf = buf[pos:]
@@ -229,8 +250,15 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 			term.Restore(fd, oldState)
 			f, err := os.CreateTemp("", "rc-edit-*.rc")
 			if err == nil {
-				f.WriteString(string(buf))
-				f.Close()
+				if _, err := f.WriteString(string(buf)); err != nil {
+					_ = f.Close()
+					_ = os.Remove(f.Name())
+					return "", err
+				}
+				if err := f.Close(); err != nil {
+					_ = os.Remove(f.Name())
+					return "", err
+				}
 
 				editorCmd := os.Getenv("VISUAL")
 				if editorCmd == "" {
@@ -241,10 +269,10 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 				}
 
 				cmd := exec.Command(editorCmd, f.Name())
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				cmd.Run()
+				cmd.Stdin = e.in
+				cmd.Stdout = e.out
+				cmd.Stderr = e.errOut
+				_ = cmd.Run()
 
 				content, _ := os.ReadFile(f.Name())
 				os.Remove(f.Name())
@@ -253,8 +281,10 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 				buf = []rune(s)
 				pos = len(buf)
 			}
-			term.MakeRaw(fd)
-			fmt.Print("\r\n")
+			if _, err := term.MakeRaw(fd); err != nil {
+				return "", err
+			}
+			fmt.Fprint(e.out, "\r\n")
 			refresh()
 		case 9: // Tab
 			wordStart := pos
@@ -272,11 +302,11 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 					pos += len(newRunes)
 					refresh()
 				} else if len(matches) > 1 {
-					fmt.Print("\r\n")
+					fmt.Fprint(e.out, "\r\n")
 					for _, m := range matches {
-						fmt.Print(m, "  ")
+						fmt.Fprint(e.out, m, "  ")
 					}
-					fmt.Print("\r\n")
+					fmt.Fprint(e.out, "\r\n")
 					refresh()
 				}
 			}
@@ -293,12 +323,12 @@ func (e *Editor) ReadLine(prompt string, cwd string) (string, error) {
 	}
 }
 
-func enableBracketedPaste() {
-	_, _ = os.Stdout.WriteString("\x1b[?2004h")
+func enableBracketedPaste(w io.Writer) {
+	_, _ = io.WriteString(w, "\x1b[?2004h")
 }
 
-func disableBracketedPaste() {
-	_, _ = os.Stdout.WriteString("\x1b[?2004l")
+func disableBracketedPaste(w io.Writer) {
+	_, _ = io.WriteString(w, "\x1b[?2004l")
 }
 
 func classifyEscapeSequence(seq []byte) editorEscapeAction {

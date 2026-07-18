@@ -86,15 +86,15 @@ func runInteractive(input io.Reader, stdout, stderr io.Writer, env *shellEnv, se
 		input = io.TeeReader(input, stderr)
 	}
 	reader := bufio.NewReader(input)
-	var editor *Editor
-	if file, ok := input.(*os.File); ok && stdinIsTerminal(file) {
-		editor = NewEditor()
-	}
 	if stdout == nil {
 		stdout = io.Discard
 	}
 	if stderr == nil {
 		stderr = io.Discard
+	}
+	var editor *Editor
+	if file, ok := input.(*os.File); ok && stdinIsTerminal(file) {
+		editor = NewEditorFor(file, stdout, stderr)
 	}
 	env.flags["i"] = true
 	if setup {

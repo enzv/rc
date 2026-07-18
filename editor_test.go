@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -30,6 +32,26 @@ func TestAddHistory_deduplicatesConsecutive(t *testing.T) {
 		if e.history[i] != v {
 			t.Errorf("history[%d] = %q, want %q", i, e.history[i], v)
 		}
+	}
+}
+
+func TestNewEditorForUsesExplicitStreams(t *testing.T) {
+	in, err := os.CreateTemp(t.TempDir(), "editor-stdin-*")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer in.Close()
+
+	var out, errOut bytes.Buffer
+	e := NewEditorFor(in, &out, &errOut)
+	if e.in != in {
+		t.Fatalf("editor input = %v, want %v", e.in, in)
+	}
+	if e.out != &out {
+		t.Fatalf("editor output = %T, want explicit output buffer", e.out)
+	}
+	if e.errOut != &errOut {
+		t.Fatalf("editor errOut = %T, want explicit error buffer", e.errOut)
 	}
 }
 
