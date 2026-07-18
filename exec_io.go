@@ -19,12 +19,6 @@ func (r *runner) execPipe(id int) error {
 
 	leftRunner := r.child(r.env.clone())
 	rightRunner := r.child(r.env.clone())
-	leftErrBuf := &safeBuffer{}
-	rightErrBuf := &safeBuffer{}
-	leftRunner.bindWriter(2, leftErrBuf)
-	leftRunner.diag = leftErrBuf
-	rightRunner.bindWriter(2, rightErrBuf)
-	rightRunner.diag = rightErrBuf
 
 	mapPipeWriter(leftRunner, node.FD0, pw)
 	mapPipeReader(rightRunner, node.FD1, pr)
@@ -48,8 +42,6 @@ func (r *runner) execPipe(id int) error {
 	rightErr := rightRunner.exec(node.Child[1])
 	_ = pr.Close()
 	left := <-leftDone
-	writePipeDiag(r, rightErrBuf.String())
-	writePipeDiag(r, leftErrBuf.String())
 
 	r.env.setStatus(pipeStatus(left.status, rightRunner.env.status()))
 
@@ -74,20 +66,6 @@ func mapPipeWriter(sub *runner, fd int, file *os.File) {
 
 func pipeStatus(left, right string) string {
 	return left + "|" + right
-}
-
-func writePipeDiag(r *runner, text string) {
-	if text == "" {
-		return
-	}
-	target := r.diag
-	if target == nil {
-		target = r.stderr
-	}
-	if target == nil {
-		return
-	}
-	_, _ = io.WriteString(target, text)
 }
 
 func (r *runner) execRedir(id int) error {
