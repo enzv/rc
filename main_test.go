@@ -509,6 +509,21 @@ func TestInvocationConformance(t *testing.T) {
 		}
 	})
 
+	t.Run("cd_file_rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "file"), []byte("not a dir"), 0o644); err != nil {
+			t.Fatalf("WriteFile(file): %v", err)
+		}
+		got := runCLI(t, exe, cliOptions{dir: dir}, "-c", "cd file; echo status:$status pwd:$pwd")
+		wantStdout := "status:1 pwd:" + dir + "\n"
+		if got.stdout != wantStdout || got.exitCode != 0 {
+			t.Fatalf("stdout=%q stderr=%q exit=%d, want stdout=%q", got.stdout, got.stderr, got.exitCode, wantStdout)
+		}
+		if !strings.Contains(got.stderr, "Can't cd file: Not a directory") {
+			t.Fatalf("stderr=%q, want not-a-directory diagnostic", got.stderr)
+		}
+	})
+
 	t.Run("invocation_login_argv0_dash", func(t *testing.T) {
 		dir := t.TempDir()
 		home := filepath.Join(dir, "home")

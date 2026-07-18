@@ -1251,15 +1251,7 @@ func (r *runner) execCD(args []string) error {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(r.env.cwd, path)
 		}
-		if _, err := os.Stat(path); err != nil {
-			_, _ = fmt.Fprintf(r.diag, "Can't cd %s: %s\n", home[0], titleError(err))
-			r.env.setStatus("1")
-			return nil
-		}
-		r.env.cwd = path
-		r.env.set("PWD", []string{path})
-		r.env.set("pwd", []string{path})
-		r.env.setStatus("")
+		r.changeDir(home[0], path)
 		return nil
 	case 1:
 		target := args[0]
@@ -1268,16 +1260,7 @@ func (r *runner) execCD(args []string) error {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(r.env.cwd, path)
 			}
-			if _, err := os.Stat(path); err != nil {
-				_, _ = fmt.Fprintf(r.diag, "Can't cd %s: %s\n", target, titleError(err))
-				r.env.setStatus("1")
-				return nil
-			}
-			os.Chdir(path)
-			r.env.cwd = path
-			r.env.set("PWD", []string{path})
-			r.env.set("pwd", []string{path})
-			r.env.setStatus("")
+			r.changeDir(target, path)
 			return nil
 		}
 
@@ -1290,15 +1273,13 @@ func (r *runner) execCD(args []string) error {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(r.env.cwd, path)
 			}
-			if _, err := os.Stat(path); err == nil {
-				os.Chdir(path)
-				r.env.cwd = path
-				r.env.set("PWD", []string{path})
-				r.env.set("pwd", []string{path})
+			if isDir(path) {
+				if !r.changeDir(target, path) {
+					return nil
+				}
 				if dir != "" && dir != "." {
 					_, _ = fmt.Fprintf(r.diag, "%s\n", candidate)
 				}
-				r.env.setStatus("")
 				return nil
 			}
 		}
@@ -1310,6 +1291,31 @@ func (r *runner) execCD(args []string) error {
 		r.env.setStatus("1")
 		return nil
 	}
+}
+
+func (r *runner) changeDir(display, path string) bool {
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() {
+		err = syscall.ENOTDIR
+	}
+	if err == nil {
+		err = os.Chdir(path)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(r.diag, "Can't cd %s: %s\n", display, titleError(err))
+		r.env.setStatus("1")
+		return false
+	}
+	r.env.cwd = path
+	r.env.set("PWD", []string{path})
+	r.env.set("pwd", []string{path})
+	r.env.setStatus("")
+	return true
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func (r *runner) execShift(args []string) error {
