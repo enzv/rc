@@ -64,9 +64,10 @@ Read the original Plan 9 rc manual. It works exactly like that.
 
 This shell builds itself. We don't use `make`. We use `make.rc`. 
 
-It is an `rc` script that lints, cross-compiles, and orchestrates a rigorous test suite. It pulls down plan9port's `rc` in a container to verify our output byte-for-byte. 
-
-That is the ultimate proof of stability: the interpreter testing itself.
+It is an `rc` script that lints, cross-compiles, and orchestrates the test suite.
+When the plan9port reference image is available, the tests compare this port
+against plan9port's `rc` fixture-by-fixture, except for OS-specific `rfork`
+cases covered by local contract tests.
 
 Bootstrap the build system using the Go toolchain:
 
