@@ -257,10 +257,7 @@ func (e *shellEnv) status() string {
 }
 
 func (e *shellEnv) setStatus(status string) {
-	if e.vars == nil {
-		e.vars = make(map[string][]string)
-	}
-	e.vars["status"] = []string{status}
+	e.set("status", []string{status})
 }
 
 func (e *shellEnv) clone() *shellEnv {

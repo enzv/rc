@@ -1631,6 +1631,7 @@ func (r *runner) cleanEnv() {
 	varApid := r.env.lookup("apid")
 
 	r.env.vars = make(map[string][]string)
+	r.env.words = make(map[string][]wordValue)
 	r.env.fns = make(map[string]funcBody)
 
 	// Restore essential shell variables
