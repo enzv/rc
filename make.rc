@@ -73,7 +73,7 @@ fn cmd_lint {
 }
 
 fn cmd_test {
-	run_go_test '-count=1' -race '-buildvcs=false' ./...
+	CGO_ENABLED=1 run_go_test '-count=1' -race '-buildvcs=false' ./...
 }
 
 fn cmd_bench {
