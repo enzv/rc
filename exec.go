@@ -62,6 +62,7 @@ type runner struct {
 	fdReaders  map[int]io.Reader
 	fdWriters  map[int]io.Writer
 	ctx        context.Context
+	signals    chan string
 }
 
 type exitSignal struct {
@@ -170,6 +171,7 @@ func RunProgram(prog *Program, opts RunOptions) (RunResult, error) {
 	} else {
 		err = r.exec(prog.Root)
 	}
+	r.runPendingSignals()
 	if !opts.SuppressSigexit {
 		r.runSigexit()
 	}
@@ -500,6 +502,7 @@ func (r *runner) child(env *shellEnv) *runner {
 		fdReaders: readers,
 		fdWriters: writers,
 		ctx:       r.ctx,
+		signals:   r.signals,
 	}
 }
 

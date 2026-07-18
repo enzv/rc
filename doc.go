@@ -234,9 +234,9 @@
 //
 // In C, signal handlers are a minefield of race conditions and async-signal-safe
 // restrictions. This port delegates signal trapping to a dedicated background
-// goroutine using 'os/signal'. When a signal like SIGINT arrives, it safely
-// queues the event and injects it into the AST evaluation loop without causing
-// deadlocks or memory corruption.
+// goroutine using 'os/signal'. When a signal like SIGINT arrives, that goroutine
+// only queues the event. The runner drains that queue at controlled points and
+// executes the matching rc function from normal interpreter code.
 //
 // # Native Globbing Engine
 //

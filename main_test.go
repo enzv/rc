@@ -302,6 +302,30 @@ func TestLexicalTraceFlag(t *testing.T) {
 	}
 }
 
+func TestQueuedSignalRunsOnDrain(t *testing.T) {
+	env := newInteractiveEnv(t)
+	prog, err := ParseSource("{ handled=ok }")
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	env.defineFunc("sigint", prog, prog.Root)
+
+	var stdout, stderr bytes.Buffer
+	r := &runner{
+		env:     env,
+		stdout:  &stdout,
+		stderr:  &stderr,
+		diag:    &stderr,
+		signals: make(chan string, 1),
+	}
+	r.queueSignal("sigint")
+	r.runPendingSignals()
+
+	if got := env.scalar("handled"); got != "ok" {
+		t.Fatalf("handled = %q, want %q", got, "ok")
+	}
+}
+
 func TestParseFlags(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

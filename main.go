@@ -97,14 +97,15 @@ func runInteractive(input io.Reader, stdout, stderr io.Writer, env *shellEnv, se
 		editor = NewEditorFor(file, stdout, stderr)
 	}
 	env.flags["i"] = true
+	signalRunner := &runner{
+		env:    env,
+		stdin:  input,
+		stdout: stdout,
+		stderr: stderr,
+		diag:   stderr,
+	}
 	if setup {
-		setupSignals(&runner{
-			env:    env,
-			stdin:  input,
-			stdout: stdout,
-			stderr: stderr,
-			diag:   stderr,
-		})
+		setupSignals(signalRunner)
 	}
 
 	var pending strings.Builder
@@ -121,6 +122,7 @@ func runInteractive(input io.Reader, stdout, stderr io.Writer, env *shellEnv, se
 	}
 
 	for {
+		signalRunner.runPendingSignals()
 		var line string
 		var readErr error
 
@@ -184,6 +186,7 @@ func runInteractive(input io.Reader, stdout, stderr io.Writer, env *shellEnv, se
 			DiagWriter:      stderr,
 			SuppressSigexit: true,
 		})
+		signalRunner.runPendingSignals()
 		if err != nil {
 			fmt.Fprintln(stderr, defaultCommandName+":", err)
 			env.setStatus("1")
@@ -520,6 +523,9 @@ doneFlags:
 }
 
 func setupSignals(r *runner) {
+	if r.signals == nil {
+		r.signals = make(chan string, 8)
+	}
 	c := make(chan os.Signal, 1)
 	signal.Ignore(syscall.SIGTTOU, syscall.SIGTTIN, syscall.SIGTSTP)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGALRM)
@@ -527,16 +533,37 @@ func setupSignals(r *runner) {
 		for sig := range c {
 			switch sig {
 			case syscall.SIGINT:
-				r.runSignal("sigint")
+				r.queueSignal("sigint")
 			case syscall.SIGQUIT:
-				r.runSignal("sigquit")
+				r.queueSignal("sigquit")
 			case syscall.SIGHUP:
-				r.runSignal("sighup")
+				r.queueSignal("sighup")
 			case syscall.SIGALRM:
-				r.runSignal("sigalrm")
+				r.queueSignal("sigalrm")
 			}
 		}
 	}()
+}
+
+func (r *runner) queueSignal(sigName string) {
+	if r.signals == nil {
+		return
+	}
+	select {
+	case r.signals <- sigName:
+	default:
+	}
+}
+
+func (r *runner) runPendingSignals() {
+	for {
+		select {
+		case sigName := <-r.signals:
+			r.runSignal(sigName)
+		default:
+			return
+		}
+	}
 }
 
 // runSigexit runs the sigexit function if defined, typically on shell exit.
