@@ -44,6 +44,26 @@ func deglob(s string) string {
 	return deglobString(s)
 }
 
+func globPattern(value wordValue) string {
+	if !value.glob {
+		return value.text
+	}
+	return markGlobPattern(value.text)
+}
+
+func markGlobPattern(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case globMark, '*', '?', '[':
+			b.WriteByte(globMark)
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 func matchPattern(subject, pattern string, relaxed bool) bool {
 	if !relaxed && isDotName(subject) && !strings.HasPrefix(deglob(pattern), ".") {
 		return false
@@ -263,7 +283,7 @@ func expandGlobWords(words []wordValue, cwd string) ([]string, error) {
 			out = append(out, word.text)
 			continue
 		}
-		matches, err := globPaths(word.text, cwd)
+		matches, err := globPaths(globPattern(word), cwd)
 		if err != nil {
 			return nil, err
 		}

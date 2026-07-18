@@ -267,7 +267,11 @@ func (r *runner) execTwiddle(id int) error {
 	if err != nil {
 		return err
 	}
-	return r.execMatch(append(wordTexts(subjects), wordTexts(patterns)...))
+	args := wordTexts(subjects)
+	for _, pattern := range patterns {
+		args = append(args, globPattern(pattern))
+	}
+	return r.execMatch(args)
 }
 
 func (r *runner) execAssignment(id int) error {
@@ -736,7 +740,9 @@ func (r *runner) extractCasePatterns(id int) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		pats = append(pats, wordTexts(vals)...)
+		for _, val := range vals {
+			pats = append(pats, globPattern(val))
+		}
 	}
 	return pats, nil
 }
