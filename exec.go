@@ -1474,11 +1474,29 @@ func (r *runner) execExec(args []string) error {
 	if len(args) == 0 {
 		return nil
 	}
-	err := r.execExternal(args)
-	if err != nil {
-		return err
+	bin := r.searchPath(args[0])
+	if bin == "" {
+		_, _ = fmt.Fprintf(r.stderr, "%s: No such file or directory\n", args[0])
+		r.env.setStatus("1")
+		return exitSignal{status: r.env.status(), code: statusCode(r.env.status())}
 	}
-	return exitSignal{status: r.env.status(), code: statusCode(r.env.status())}
+	if r.env.flags["x"] {
+		if _, err := fmt.Fprintln(r.diag, strings.Join(args, " ")); err != nil {
+			return err
+		}
+	}
+	if err := os.Chdir(r.env.cwd); err != nil {
+		_, _ = fmt.Fprintf(r.stderr, "%s: %v\n", args[0], err)
+		r.env.setStatus("1")
+		return exitSignal{status: r.env.status(), code: statusCode(r.env.status())}
+	}
+	argv := append([]string{args[0]}, args[1:]...)
+	if err := syscall.Exec(bin, argv, r.exportEnv()); err != nil {
+		_, _ = fmt.Fprintf(r.stderr, "%s: %v\n", args[0], err)
+		r.env.setStatus("1")
+		return exitSignal{status: r.env.status(), code: statusCode(r.env.status())}
+	}
+	return nil
 }
 
 func (r *runner) execFlag(args []string) error {

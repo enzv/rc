@@ -509,6 +509,20 @@ func TestInvocationConformance(t *testing.T) {
 		}
 	})
 
+	t.Run("exec_replaces_shell", func(t *testing.T) {
+		got := runCLI(t, exe, cliOptions{}, "-c", "exec /bin/sh -c 'echo exec-ok'; echo after")
+		if got.stdout != "exec-ok\n" || got.stderr != "" || got.exitCode != 0 {
+			t.Fatalf("stdout=%q stderr=%q exit=%d", got.stdout, got.stderr, got.exitCode)
+		}
+	})
+
+	t.Run("exec_missing_does_not_continue", func(t *testing.T) {
+		got := runCLI(t, exe, cliOptions{}, "-c", "exec definitely_missing_command; echo after")
+		if strings.Contains(got.stdout, "after") || got.exitCode == 0 {
+			t.Fatalf("stdout=%q stderr=%q exit=%d", got.stdout, got.stderr, got.exitCode)
+		}
+	})
+
 	t.Run("cd_file_rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "file"), []byte("not a dir"), 0o644); err != nil {
