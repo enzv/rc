@@ -23,9 +23,10 @@ func normalizeDiagnosticOutput(s, binaryPath string) string {
 }
 
 type refFixture struct {
-	name  string
-	args  []string
-	setup func(*testing.T, string)
+	name       string
+	args       []string
+	setup      func(*testing.T, string)
+	paritySkip string
 }
 
 type commandResult struct {
@@ -103,8 +104,14 @@ var refFixtures = []refFixture{
 	{name: "exit_status_explicit.rc"},
 	{name: "exit_current_status.rc"},
 	{name: "rfork_compat.rc"},
-	{name: "rfork_default.rc"},
-	{name: "rfork_flags.rc"},
+	{
+		name:       "rfork_default.rc",
+		paritySkip: "rfork is a best-effort OS-specific builtin; plan9port and this port intentionally diverge outside the portable subset",
+	},
+	{
+		name:       "rfork_flags.rc",
+		paritySkip: "rfork is a best-effort OS-specific builtin; plan9port and this port intentionally diverge outside the portable subset",
+	},
 	{name: "reference_parity.rc"},
 	{name: "shift_basic.rc", args: []string{"one", "two", "three", "four"}},
 	{name: "wait_pid_and_all.rc"},
@@ -234,6 +241,23 @@ func runReferenceCommand(t *testing.T, work string, tc refFixture) commandResult
 	return runCommand(t, referenceRuntime(), args, work, "./case.rc", tc)
 }
 
+func requireReferenceRuntime(t *testing.T) {
+	t.Helper()
+
+	runtime := referenceRuntime()
+	if _, err := exec.LookPath(runtime); err != nil {
+		t.Skipf("reference runtime %q not found: %v", runtime, err)
+	}
+
+	cmd := exec.Command(runtime, "image", "inspect", referenceImage())
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		t.Skipf("reference image %q unavailable for %s: %v\n%s", referenceImage(), runtime, err, output.String())
+	}
+}
+
 func normalizeWorkdirOutput(s, work string) string {
 	s = strings.ReplaceAll(s, work, "<work>")
 	s = strings.ReplaceAll(s, "/work", "<work>")
@@ -269,8 +293,44 @@ func copyFixture(t *testing.T, src, dst string) {
 	}
 }
 
+func TestReferenceParityFixtures(t *testing.T) {
+	requireReferenceRuntime(t)
+	shellBin := buildShell(t)
+
+	for _, tc := range refFixtures {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.paritySkip != "" {
+				t.Skip(tc.paritySkip)
+			}
+			work := t.TempDir()
+			stageWorkdir(t, work, tc)
+
+			got := runCommand(t, shellBin, nil, work, "case.rc", tc)
+			if got.err != nil {
+				t.Fatalf("run shell: %v", got.err)
+			}
+			want := runReferenceCommand(t, work, tc)
+			if want.err != nil {
+				t.Fatalf("run reference: %v", want.err)
+			}
+
+			if got.status != want.status {
+				t.Errorf("status = %d, want %d", got.status, want.status)
+			}
+			if got.stdout != want.stdout {
+				t.Errorf("stdout mismatch\ngot:\n%s\nwant:\n%s", got.stdout, want.stdout)
+			}
+			if got.stderr != want.stderr {
+				t.Errorf("stderr mismatch\ngot:\n%s\nwant:\n%s", got.stderr, want.stderr)
+			}
+		})
+	}
+}
+
 func TestCaretMismatchedListError(t *testing.T) {
 	t.Parallel()
+	requireReferenceRuntime(t)
 	shellBin := buildShell(t)
 	work := t.TempDir()
 	scriptPath := filepath.Join(work, "case.rc")
@@ -282,6 +342,12 @@ func TestCaretMismatchedListError(t *testing.T) {
 	tc := refFixture{}
 	got := runCommand(t, shellBin, nil, work, "case.rc", tc)
 	want := runReferenceCommand(t, work, tc)
+	if got.err != nil {
+		t.Fatalf("run shell: %v", got.err)
+	}
+	if want.err != nil {
+		t.Fatalf("run reference: %v", want.err)
+	}
 
 	if got.status == 0 {
 		t.Errorf("got status 0, want non-zero")
