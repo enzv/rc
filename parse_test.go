@@ -41,6 +41,7 @@ func TestParserFormatCases(t *testing.T) {
 		{name: "assignment", src: "x=y\n", want: "x=y"},
 		{name: "temporary assignment", src: "x=y echo ok\n", want: "x=y echo ok"},
 		{name: "heredoc syntax", src: "cat <<EOF\nhello\nEOF\necho ok\n", want: "<<EOF cat\necho ok"},
+		{name: "heredoc after assignment", src: "x=world\ncat <<EOF\nhello\nEOF\n", want: "x=world\n<<EOF cat"},
 		{name: "process substitution read", src: "echo <{a;b}\n", want: "echo <{a\nb}"},
 		{name: "process substitution write", src: "echo >{a;b}\n", want: "echo >{a\nb}"},
 	}
@@ -52,6 +53,33 @@ func TestParserFormatCases(t *testing.T) {
 				t.Fatalf("FormatTree mismatch\n got: %q\nwant: %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseHeredocAfterAssignmentBody(t *testing.T) {
+	prog, err := ParseSource("x=world\ncat <<EOF\nhello\nEOF\n")
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	redir := -1
+	for id, node := range prog.Nodes {
+		if node.Type == tokenRedir && node.RType == redirHere {
+			redir = id
+			break
+		}
+	}
+	if redir < 0 {
+		t.Fatal("missing here-doc redirection")
+	}
+	body, quoted, ok := prog.HereDoc(redir)
+	if !ok {
+		t.Fatal("missing here-doc body")
+	}
+	if quoted {
+		t.Fatal("here-doc unexpectedly marked quoted")
+	}
+	if body != "hello\n" {
+		t.Fatalf("here-doc body = %q, want %q", body, "hello\n")
 	}
 }
 

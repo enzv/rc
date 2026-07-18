@@ -374,7 +374,7 @@ func keywordType(name string) (NodeType, bool) {
 func Klook(name string) Node {
 	kind, _ := keywordType(name)
 	_ = name
-	return Node{Type: kind}
+	return Node{Type: kind, Child: noChildren()}
 }
 
 // NewScope creates and initializes a new variable scope.

@@ -121,6 +121,19 @@ func TestShouldForeground(t *testing.T) {
 	}
 }
 
+func TestRunSourceHeredocAfterAssignment(t *testing.T) {
+	result, err := RunSource("x=world\ncat <<EOF\nhello $x\nEOF\n", RunOptions{})
+	if err != nil {
+		t.Fatalf("RunSource: %v", err)
+	}
+	if result.Stdout != "hello world\n" {
+		t.Fatalf("stdout = %q, want %q", result.Stdout, "hello world\n")
+	}
+	if result.Status != "" {
+		t.Fatalf("status = %q, want empty", result.Status)
+	}
+}
+
 func TestSplitByIFS(t *testing.T) {
 	cases := []struct {
 		name   string

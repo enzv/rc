@@ -200,14 +200,16 @@ func attachHereDocs(prog *Program, docs []hereDoc) {
 		prog.HereDocs = make(map[int]hereDoc, len(docs))
 	}
 	index := 0
+	visited := make([]bool, len(prog.Nodes))
 	stack := make([]int, 0, len(prog.Nodes))
 	stack = append(stack, prog.Root)
 	for len(stack) > 0 && index < len(docs) {
 		id := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		if id < 0 {
+		if id < 0 || id >= len(prog.Nodes) || visited[id] {
 			continue
 		}
+		visited[id] = true
 		node := &prog.Nodes[id]
 		if node.Type == tokenRedir && node.RType == redirHere {
 			prog.HereDocs[id] = docs[index]
@@ -264,7 +266,7 @@ func (p *parser) addNode(node Node) int {
 }
 
 func (p *parser) newNode(kind NodeType, pos Position) int {
-	id := p.addNode(Node{Type: kind})
+	id := p.addNode(Node{Type: kind, Child: noChildren()})
 	p.offsets[id] = pos.Offset
 	return id
 }
@@ -275,6 +277,7 @@ func (p *parser) syntaxNode(tok LexToken) int {
 		RType: tok.RType,
 		FD0:   tok.FD0,
 		FD1:   tok.FD1,
+		Child: noChildren(),
 	})
 	p.offsets[id] = tok.Pos.Offset
 	return id
@@ -282,8 +285,9 @@ func (p *parser) syntaxNode(tok LexToken) int {
 
 func (p *parser) wordNode(tok LexToken) int {
 	id := p.addNode(Node{
-		Type: tokenWord,
-		Tok:  p.pos,
+		Type:  tokenWord,
+		Tok:   p.pos,
+		Child: noChildren(),
 	})
 	p.offsets[id] = tok.Pos.Offset
 	return id

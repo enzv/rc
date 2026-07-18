@@ -84,11 +84,15 @@ func (p *Program) HereDoc(id int) (string, bool, bool) {
 func WordNode(str string, quoted bool) Node {
 	_ = str
 	_ = quoted
-	return Node{Type: tokenWord, Tok: -1}
+	return Node{Type: tokenWord, Tok: -1, Child: noChildren()}
 }
 
 func SyntaxNode(kind NodeType) Node {
-	return Node{Type: kind}
+	return Node{Type: kind, Child: noChildren()}
+}
+
+func noChildren() [3]int {
+	return [3]int{-1, -1, -1}
 }
 
 const (
